@@ -43,13 +43,13 @@ import {
 import { Input } from "@/src/components/ui/input";
 import Link from "next/link";
 import { ArrowTopRightIcon } from "@radix-ui/react-icons";
-import { PromptDescription } from "@/src/features/prompts/components/prompt-description";
-import { JsonEditor } from "@/src/components/json-editor";
+import { PromptVariableListPreview } from "@/src/features/prompts/components/PromptVariableListPreview";
+import { CodeMirrorEditor } from "@/src/components/editor/CodeMirrorEditor";
+import { PromptLinkingEditor } from "@/src/components/editor/PromptLinkingEditor";
 import { PRODUCTION_LABEL } from "@/src/features/prompts/constants";
 import { usePostHogClientCapture } from "@/src/features/posthog-analytics/usePostHogClientCapture";
 import usePlaygroundCache from "@/src/ee/features/playground/page/hooks/usePlaygroundCache";
 import { useQueryParam } from "use-query-params";
-import { Switch } from "@/src/components/ui/switch";
 import { usePromptNameValidation } from "@/src/features/prompts/hooks/usePromptNameValidation";
 
 type NewPromptFormProps = {
@@ -64,7 +64,6 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
   const [formError, setFormError] = useState<string | null>(null);
   const { playgroundCache } = usePlaygroundCache();
   const [initialMessages, setInitialMessages] = useState<unknown>([]);
-  const [showJsonEditor, setShowJsonEditor] = useState(false);
 
   const utils = api.useUtils();
   const capture = usePostHogClientCapture();
@@ -168,9 +167,11 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
       .then((newPrompt) => {
         onFormSuccess?.();
         form.reset();
-        void router.push(
-          `/project/${projectId}/prompts/${encodeURIComponent(newPrompt.name)}`,
-        );
+        if ("name" in newPrompt) {
+          void router.push(
+            `/project/${projectId}/prompts/${encodeURIComponent(newPrompt.name)}`,
+          );
+        }
       })
       .catch((error) => {
         console.error(error);
@@ -241,24 +242,15 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
         {/* Prompt content field - text vs. chat */}
         <>
           <FormItem>
-            <FormLabel className="flex flex-row items-center justify-between">
-              <div>Prompt</div>
-              {form.watch("type") === PromptType.Text ? (
-                <div className="flex flex-row items-center">
-                  <p className="mr-1 text-xs text-muted-foreground">
-                    JSON editor
-                  </p>
-
-                  <Switch
-                    checked={showJsonEditor}
-                    className={
-                      showJsonEditor ? "data-[state=checked]:bg-dark-green" : ""
-                    }
-                    onCheckedChange={setShowJsonEditor}
-                  />
-                </div>
-              ) : null}
-            </FormLabel>
+            <FormLabel>Prompt</FormLabel>
+            <FormDescription>
+              Define your prompt template. You can use{" "}
+              <code className="text-xs">{"{{variable}}"}</code> to insert
+              variables into your prompt.
+              <b className="font-semibold"> Note:</b> Variables must be
+              alphabetical characters or underscores. You can also link other
+              text prompts using the plus button.
+            </FormDescription>
             <Tabs
               value={form.watch("type")}
               onValueChange={(e) => {
@@ -296,18 +288,12 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
                   render={({ field }) => (
                     <>
                       <FormControl>
-                        {showJsonEditor ? (
-                          <JsonEditor
-                            defaultValue={field.value}
-                            onChange={field.onChange}
-                            editable
-                          />
-                        ) : (
-                          <Textarea
-                            {...field}
-                            className="min-h-[200px] flex-1 font-mono text-xs"
-                          />
-                        )}
+                        <PromptLinkingEditor
+                          value={field.value}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          minHeight={200}
+                        />
                       </FormControl>
                       <FormMessage />
                     </>
@@ -323,6 +309,7 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
                       <PromptChatMessages
                         {...field}
                         initialMessages={initialMessages}
+                        projectId={projectId}
                       />
                       <FormMessage />
                     </>
@@ -331,9 +318,7 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
               </TabsContent>
             </Tabs>
           </FormItem>
-          <PromptDescription
-            currentExtractedVariables={currentExtractedVariables}
-          />
+          <PromptVariableListPreview variables={currentExtractedVariables} />
         </>
 
         {/* Prompt Config field */}
@@ -343,16 +328,19 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Config</FormLabel>
-              <JsonEditor
-                defaultValue={field.value}
+              <FormDescription>
+                Arbitrary JSON configuration that is available on the prompt.
+                Use this to track LLM parameters, function definitions, or any
+                other metadata.
+              </FormDescription>
+              <CodeMirrorEditor
+                value={field.value}
                 onChange={field.onChange}
                 onBlur={field.onBlur}
                 editable
+                mode="json"
+                minHeight="none"
               />
-              <FormDescription>
-                Track configs for LLM API calls such as function definitions or
-                LLM parameters.
-              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -365,6 +353,10 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Labels</FormLabel>
+              <FormDescription>
+                This version will be labeled as the version to be used in
+                production for this prompt. Labels can be updated later.
+              </FormDescription>
               <div className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3">
                 <FormControl>
                   <Checkbox
@@ -376,13 +368,32 @@ export const NewPromptForm: React.FC<NewPromptFormProps> = (props) => {
                   <FormLabel>Set the &quot;production&quot; label</FormLabel>
                 </div>
               </div>
-              <FormDescription>
-                This version will be labeled as the version to be used in
-                production for this prompt. Can be updated later.
-              </FormDescription>
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name="commitMessage"
+          render={({ field }) => (
+            <FormItem className="relative">
+              <FormLabel>Commit message (optional)</FormLabel>
+              <FormDescription>
+                Provide information about the changes made in this version.
+                Helps maintain a clear history of prompt iterations.
+              </FormDescription>
+              <FormControl>
+                <Textarea
+                  placeholder="Add commit message..."
+                  {...field}
+                  className="rounded-md border text-sm focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 active:ring-0"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         {initialPrompt ? (
           <div className="flex flex-col gap-2">
             <ReviewPromptDialog

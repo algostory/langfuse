@@ -29,6 +29,7 @@ import {
   datasetFormFilterColsWithOptions,
   availableDatasetEvalVariables,
   type langfuseObjects,
+  TimeScopeSchema,
 } from "@langfuse/shared";
 import * as z from "zod";
 import { useEffect, useMemo, useState } from "react";
@@ -53,18 +54,27 @@ import {
   PopoverTrigger,
 } from "@/src/components/ui/popover";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "@/src/components/ui/command";
+  InputCommand,
+  InputCommandEmpty,
+  InputCommandGroup,
+  InputCommandInput,
+  InputCommandItem,
+  InputCommandList,
+  InputCommandSeparator,
+} from "@/src/components/ui/input-command";
 import { cn } from "@/src/utils/tailwind";
 import { Dialog, DialogContent, DialogTitle } from "@/src/components/ui/dialog";
 import { EvalTemplateForm } from "@/src/ee/features/evals/components/template-form";
 import { showSuccessToast } from "@/src/features/notifications/showSuccessToast";
+import { Checkbox } from "@/src/components/ui/checkbox";
+import { compactNumberFormatter } from "@/src/utils/numbers";
+
+export const fieldHasJsonSelectorOption = (
+  selectedColumnId: string | undefined | null,
+): boolean =>
+  selectedColumnId === "input" ||
+  selectedColumnId === "output" ||
+  selectedColumnId === "expected_output";
 
 const formSchema = z.object({
   scoreName: z.string(),
@@ -73,6 +83,7 @@ const formSchema = z.object({
   mapping: z.array(wipVariableMapping),
   sampling: z.coerce.number().gt(0).lte(1),
   delay: z.coerce.number().optional().default(10),
+  timeScope: TimeScopeSchema,
 });
 
 type LangfuseObject = (typeof langfuseObjects)[number];
@@ -146,17 +157,17 @@ export const EvaluatorForm = (props: {
               className="w-[--radix-popover-trigger-width] overflow-auto p-0"
               align="start"
             >
-              <Command>
-                <CommandInput
+              <InputCommand>
+                <InputCommandInput
                   placeholder="Search templates..."
                   className="h-9"
                 />
-                <CommandList>
-                  <CommandEmpty>No template found.</CommandEmpty>
-                  <CommandGroup>
+                <InputCommandList>
+                  <InputCommandEmpty>No template found.</InputCommandEmpty>
+                  <InputCommandGroup>
                     {Object.entries(templatesByName).map(
                       ([name, templateData]) => (
-                        <CommandItem
+                        <InputCommandItem
                           key={name}
                           onSelect={() => {
                             setSelectedTemplateName(name);
@@ -175,19 +186,21 @@ export const EvaluatorForm = (props: {
                                 : "opacity-0",
                             )}
                           />
-                        </CommandItem>
+                        </InputCommandItem>
                       ),
                     )}
-                  </CommandGroup>
-                  <CommandSeparator alwaysRender />
-                  <CommandGroup forceMount>
-                    <CommandItem onSelect={() => setIsCreateTemplateOpen(true)}>
+                  </InputCommandGroup>
+                  <InputCommandSeparator alwaysRender />
+                  <InputCommandGroup forceMount>
+                    <InputCommandItem
+                      onSelect={() => setIsCreateTemplateOpen(true)}
+                    >
                       Create new template
                       <ExternalLink className="ml-auto h-4 w-4" />
-                    </CommandItem>
-                  </CommandGroup>
-                </CommandList>
-              </Command>
+                    </InputCommandItem>
+                  </InputCommandGroup>
+                </InputCommandList>
+              </InputCommand>
             </PopoverContent>
           </Popover>
 
@@ -213,14 +226,14 @@ export const EvaluatorForm = (props: {
               className="w-[--radix-popover-trigger-width] overflow-auto p-0"
               align="start"
             >
-              <Command>
-                <CommandList>
-                  <CommandEmpty>No version found.</CommandEmpty>
-                  <CommandGroup>
+              <InputCommand>
+                <InputCommandList>
+                  <InputCommandEmpty>No version found.</InputCommandEmpty>
+                  <InputCommandGroup>
                     {selectedTemplateName &&
                     templatesByName[selectedTemplateName] ? (
                       templatesByName[selectedTemplateName].map((template) => (
-                        <CommandItem
+                        <InputCommandItem
                           key={template.id}
                           onSelect={() => {
                             setSelectedTemplateVersion(template.version);
@@ -236,14 +249,16 @@ export const EvaluatorForm = (props: {
                                 : "opacity-0",
                             )}
                           />
-                        </CommandItem>
+                        </InputCommandItem>
                       ))
                     ) : (
-                      <CommandItem disabled>No versions available</CommandItem>
+                      <InputCommandItem disabled>
+                        No versions available
+                      </InputCommandItem>
                     )}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
+                  </InputCommandGroup>
+                </InputCommandList>
+              </InputCommand>
             </PopoverContent>
           </Popover>
         </div>
@@ -329,6 +344,10 @@ export const InnerEvalConfigForm = (props: {
       delay: props.existingEvaluator?.delay
         ? props.existingEvaluator.delay / 1000
         : 10,
+      timeScope: (props.existingEvaluator?.timeScope ?? ["NEW"]).filter(
+        (option): option is "NEW" | "EXISTING" =>
+          ["NEW", "EXISTING"].includes(option),
+      ),
     },
   });
 
@@ -421,6 +440,26 @@ export const InnerEvalConfigForm = (props: {
 
     const validatedFilter = z.array(singleFilter).safeParse(values.filter);
 
+    if (
+      props.existingEvaluator?.timeScope.includes("EXISTING") &&
+      props.mode === "edit" &&
+      !values.timeScope.includes("EXISTING")
+    ) {
+      form.setError("timeScope", {
+        type: "manual",
+        message:
+          "The evaluator ran on existing traces already. This cannot be changed anymore.",
+      });
+      return;
+    }
+    if (form.getValues("timeScope").length === 0) {
+      form.setError("timeScope", {
+        type: "manual",
+        message: "Please select at least one.",
+      });
+      return;
+    }
+
     if (validatedFilter.success === false) {
       form.setError("filter", {
         type: "manual",
@@ -458,6 +497,7 @@ export const InnerEvalConfigForm = (props: {
             variableMapping: mapping,
             sampling,
             scoreName,
+            timeScope: values.timeScope,
           },
         })
       : createJobMutation.mutateAsync({
@@ -469,6 +509,7 @@ export const InnerEvalConfigForm = (props: {
           mapping,
           sampling,
           delay,
+          timeScope: values.timeScope,
         })
     )
       .then(() => {
@@ -563,6 +604,75 @@ export const InnerEvalConfigForm = (props: {
               )}
             />
 
+            <div className="flex min-w-[300px]">
+              <FormField
+                control={form.control}
+                name="timeScope"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Evaluator runs on</FormLabel>
+                    <FormControl>
+                      <div className="flex flex-col gap-2">
+                        <div className="items-top flex space-x-2">
+                          <Checkbox
+                            id="newObjects"
+                            checked={field.value.includes("NEW")}
+                            onCheckedChange={(checked) => {
+                              const newValue = checked
+                                ? [...field.value, "NEW"]
+                                : field.value.filter((v) => v !== "NEW");
+                              field.onChange(newValue);
+                            }}
+                            disabled={props.disabled}
+                          />
+                          <div className="grid gap-1.5 leading-none">
+                            <label
+                              htmlFor="newObjects"
+                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            >
+                              New{" "}
+                              {form.watch("target") === "trace"
+                                ? "traces"
+                                : "dataset items"}
+                            </label>
+                          </div>
+                        </div>
+                        <div className="items-top flex space-x-2">
+                          <Checkbox
+                            id="existingObjects"
+                            checked={field.value.includes("EXISTING")}
+                            onCheckedChange={(checked) => {
+                              const newValue = checked
+                                ? [...field.value, "EXISTING"]
+                                : field.value.filter((v) => v !== "EXISTING");
+                              field.onChange(newValue);
+                            }}
+                            disabled={
+                              props.disabled ||
+                              (props.mode === "edit" &&
+                                field.value.includes("EXISTING"))
+                            }
+                          />
+                          <div className="grid gap-1.5 leading-none">
+                            <label
+                              htmlFor="existingObjects"
+                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            >
+                              Existing{" "}
+                              {form.watch("target") === "trace"
+                                ? "traces"
+                                : "dataset items"}
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <FormField
               control={form.control}
               name="filter"
@@ -583,8 +693,11 @@ export const InnerEvalConfigForm = (props: {
                         />
                       </FormControl>
                       <FormDescription>
-                        This will run on all future traces that match these
-                        filters
+                        <TimeScopeDescription
+                          projectId={props.projectId}
+                          timeScope={form.watch("timeScope")}
+                          target="trace"
+                        />
                       </FormDescription>
                       <FormMessage />
                     </>
@@ -602,7 +715,11 @@ export const InnerEvalConfigForm = (props: {
                         />
                       </FormControl>
                       <FormDescription>
-                        This will run on all future dataset experiment runs
+                        <TimeScopeDescription
+                          projectId={props.projectId}
+                          timeScope={form.watch("timeScope")}
+                          target="dataset_item"
+                        />
                       </FormDescription>
                       <FormMessage />
                     </>
@@ -631,9 +748,10 @@ export const InnerEvalConfigForm = (props: {
                       title={"Eval Template"}
                       json={props.evalTemplate.prompt ?? null}
                       className={cn(
-                        "min-h-48 bg-muted",
+                        "min-h-48",
                         !props.shouldWrapVariables && "lg:w-2/3",
                       )}
+                      codeClassName="flex-1"
                     />
                     <div
                       className={cn(
@@ -799,6 +917,39 @@ export const InnerEvalConfigForm = (props: {
                               </div>
                             )}
                           />
+                          {fieldHasJsonSelectorOption(
+                            form.watch(`mapping.${index}.selectedColumnId`),
+                          ) ? (
+                            <FormField
+                              control={form.control}
+                              key={`${mappingField.id}-jsonSelector`}
+                              name={`mapping.${index}.jsonSelector`}
+                              render={({ field }) => (
+                                <div className="flex items-center gap-2">
+                                  <VariableMappingDescription
+                                    title={"JsonPath"}
+                                    description={
+                                      "Optional selection: Use JsonPath syntax to select from a JSON object stored on a trace. If not selected, we will pass the entire object into the prompt."
+                                    }
+                                    href={
+                                      "https://langfuse.com/docs/scores/model-based-evals"
+                                    }
+                                  />
+                                  <FormItem className="w-2/3">
+                                    <FormControl>
+                                      <Input
+                                        {...field}
+                                        value={field.value ?? ""}
+                                        disabled={props.disabled}
+                                        placeholder="Optional"
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                </div>
+                              )}
+                            />
+                          ) : undefined}
                         </Card>
                       ))}
                     </div>
@@ -894,3 +1045,32 @@ function VariableMappingDescription(p: {
     </div>
   );
 }
+
+export const TimeScopeDescription = (props: {
+  projectId: string;
+  timeScope: ("NEW" | "EXISTING")[] | undefined;
+  target: "trace" | "dataset_item" | undefined;
+}) => {
+  if (!props.timeScope || props.timeScope.length === 0) {
+    return "Select a time scope to run this configuration on.";
+  }
+
+  const globalConfig = api.evals.globalJobConfigs.useQuery({
+    projectId: props.projectId,
+  });
+  return (
+    <div>
+      This configuration will run on{" "}
+      {props.timeScope?.includes("NEW") && props.timeScope?.includes("EXISTING")
+        ? "all future and existing"
+        : props.timeScope?.includes("NEW")
+          ? "all future"
+          : "all existing"}{" "}
+      {props.target === "trace" ? "traces" : "dataset items"} that match these
+      filters.{" "}
+      {globalConfig.data && props.timeScope?.includes("EXISTING")
+        ? `We execute the evaluation on up to ${compactNumberFormatter(globalConfig.data)} historic evaluations.`
+        : null}
+    </div>
+  );
+};

@@ -17,12 +17,10 @@ import { useRouter } from "next/router";
 export const DeleteDatasetRunButton = ({
   projectId,
   datasetRunId,
-  fullWidth = false,
   redirectUrl,
 }: {
   projectId: string;
   datasetRunId: string;
-  fullWidth?: boolean;
   redirectUrl?: string;
 }) => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -33,13 +31,13 @@ export const DeleteDatasetRunButton = ({
   });
   const utils = api.useUtils();
   const router = useRouter();
-  const mutDelete = api.datasets.deleteDatasetRun.useMutation({
+  const mutDelete = api.datasets.deleteDatasetRuns.useMutation({
     onSuccess: () => {
       redirectUrl ? router.push(redirectUrl) : utils.datasets.invalidate();
     },
   });
 
-  const button = fullWidth ? (
+  const button = (
     <Button
       variant="ghost"
       className="w-full"
@@ -50,10 +48,6 @@ export const DeleteDatasetRunButton = ({
         <Trash className="h-4 w-4" />
         <span className="text-sm font-normal">Delete</span>
       </div>
-    </Button>
-  ) : (
-    <Button variant="outline" size="icon" disabled={!hasAccess}>
-      <Trash className="h-4 w-4" />
     </Button>
   );
 
@@ -84,7 +78,7 @@ export const DeleteDatasetRunButton = ({
             capture("dataset_run:delete_form_submit");
             await mutDelete.mutateAsync({
               projectId,
-              datasetRunId,
+              datasetRunIds: [datasetRunId],
             });
             setIsDialogOpen(false);
           }}

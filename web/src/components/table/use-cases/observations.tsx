@@ -16,7 +16,7 @@ import { formatIntervalSeconds } from "@/src/utils/dates";
 import useColumnVisibility from "@/src/features/column-visibility/hooks/useColumnVisibility";
 import { type LangfuseColumnDef } from "@/src/components/table/types";
 import {
-  type ObservationLevel,
+  type ObservationLevelType,
   type FilterState,
   type ObservationOptions,
   BatchExportTableName,
@@ -45,14 +45,20 @@ import { BreakdownTooltip } from "@/src/components/trace/BreakdownToolTip";
 import { InfoIcon, PlusCircle } from "lucide-react";
 import { UpsertModelFormDrawer } from "@/src/features/models/components/UpsertModelFormDrawer";
 import { ColorCodedObservationType } from "@/src/components/trace/ObservationTree";
+import { LocalIsoDate } from "@/src/components/LocalIsoDate";
+import {
+  useEnvironmentFilter,
+  convertSelectedEnvironmentsToFilter,
+} from "@/src/hooks/use-environment-filter";
+import { Badge } from "@/src/components/ui/badge";
 
 export type ObservationsTableRow = {
   id: string;
   traceId?: string;
   startTime: Date;
-  level?: ObservationLevel;
+  level?: ObservationLevelType;
   statusMessage?: string;
-  endTime?: string;
+  endTime?: Date;
   completionStartTime?: Date;
   latency?: number;
   timeToFirstToken?: number;
@@ -79,6 +85,7 @@ export type ObservationsTableRow = {
   promptName?: string;
   promptVersion?: string;
   traceTags?: string[];
+  environment?: string;
 };
 
 export type ObservationsTableProps = {
@@ -176,12 +183,36 @@ export default function ObservationsTable({
       ]
     : [];
 
-  const filterState = inputFilterState.concat([
-    ...dateRangeFilter,
-    ...promptNameFilter,
-    ...promptVersionFilter,
-    ...modelIdFilter,
-  ]);
+  const environmentFilterOptions =
+    api.projects.environmentFilterOptions.useQuery(
+      { projectId },
+      {
+        trpc: { context: { skipBatch: true } },
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        staleTime: Infinity,
+      },
+    );
+
+  const environmentOptions =
+    environmentFilterOptions.data?.map((value) => value.environment) || [];
+
+  const { selectedEnvironments, setSelectedEnvironments } =
+    useEnvironmentFilter(environmentOptions, projectId);
+
+  const environmentFilter = convertSelectedEnvironmentsToFilter(
+    ["environment", "traceEnvironment"],
+    selectedEnvironments,
+  );
+
+  const filterState = inputFilterState.concat(
+    dateRangeFilter,
+    promptNameFilter,
+    promptVersionFilter,
+    modelIdFilter,
+    environmentFilter,
+  );
 
   const getCountPayload = {
     projectId,
@@ -270,7 +301,7 @@ export default function ObservationsTable({
       accessorKey: "type",
       id: "type",
       header: "Type",
-      size: 100,
+      size: 120,
       enableSorting: true,
       cell: ({ row }) => {
         const value: ObservationType = row.getValue("type");
@@ -279,6 +310,25 @@ export default function ObservationsTable({
             <ColorCodedObservationType observationType={value} />
           </div>
         ) : undefined;
+      },
+    },
+    {
+      accessorKey: "environment",
+      header: "Environment",
+      id: "environment",
+      size: 150,
+      enableHiding: true,
+      cell: ({ row }) => {
+        const value: ObservationsTableRow["environment"] =
+          row.getValue("environment");
+        return value ? (
+          <Badge
+            variant="secondary"
+            className="max-w-fit truncate rounded-sm px-1 font-normal"
+          >
+            {value}
+          </Badge>
+        ) : null;
       },
     },
     {
@@ -314,7 +364,7 @@ export default function ObservationsTable({
       enableSorting: true,
       cell: ({ row }) => {
         const value: Date = row.getValue("startTime");
-        return value.toLocaleString();
+        return <LocalIsoDate date={value} />;
       },
     },
     {
@@ -324,6 +374,10 @@ export default function ObservationsTable({
       size: 150,
       enableHiding: true,
       enableSorting: true,
+      cell: ({ row }) => {
+        const value: Date | undefined = row.getValue("endTime");
+        return value ? <LocalIsoDate date={value} /> : undefined;
+      },
     },
     {
       accessorKey: "timeToFirstToken",
@@ -447,7 +501,7 @@ export default function ObservationsTable({
       },
       enableHiding: true,
       cell({ row }) {
-        const value: ObservationLevel | undefined = row.getValue("level");
+        const value: ObservationLevelType | undefined = row.getValue("level");
         return value ? (
           <span
             className={cn(
@@ -522,7 +576,6 @@ export default function ObservationsTable({
         );
       },
     },
-
     {
       accessorKey: "modelId",
       id: "modelId",
@@ -531,7 +584,6 @@ export default function ObservationsTable({
       enableHiding: true,
       defaultHidden: true,
     },
-
     {
       accessorKey: "inputTokens",
       id: "inputTokens",
@@ -763,7 +815,7 @@ export default function ObservationsTable({
             type: generation.type ?? undefined,
             traceName: generation.traceName ?? "",
             startTime: generation.startTime,
-            endTime: generation.endTime?.toLocaleString() ?? undefined,
+            endTime: generation.endTime ?? undefined,
             timeToFirstToken: generation.timeToFirstToken ?? undefined,
             scores: verifyAndPrefixScoreDataAgainstKeys(
               scoreKeysAndProps,
@@ -790,6 +842,7 @@ export default function ObservationsTable({
             traceTags: generation.traceTags ?? undefined,
             usageDetails: generation.usageDetails ?? {},
             costDetails: generation.costDetails ?? {},
+            environment: generation.environment ?? undefined,
           };
         })
       : [];
@@ -803,7 +856,7 @@ export default function ObservationsTable({
         filterState={inputFilterState}
         setFilterState={useDebounce(setInputFilterState)}
         searchConfig={{
-          placeholder: "Search by id, name, traceName, model",
+          placeholder: "Search (by id, name, trace name, model)",
           updateQuery: setSearchQuery,
           currentQuery: searchQuery ?? undefined,
         }}
@@ -819,10 +872,15 @@ export default function ObservationsTable({
         actionButtons={
           <BatchExportTableButton
             {...{ projectId, filterState, orderByState }}
-            tableName={BatchExportTableName.Generations}
+            tableName={BatchExportTableName.Observations}
             key="batchExport"
           />
         }
+        environmentFilter={{
+          values: selectedEnvironments,
+          onValueChange: setSelectedEnvironments,
+          options: environmentOptions.map((env) => ({ value: env })),
+        }}
       />
       <DataTable
         columns={columns}

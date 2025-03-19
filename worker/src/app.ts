@@ -9,6 +9,7 @@ import MessageResponse from "./interfaces/MessageResponse";
 require("dotenv").config();
 
 import {
+  evalJobCreatorQueueProcessor,
   evalJobDatasetCreatorQueueProcessor,
   evalJobExecutorQueueProcessor,
   evalJobTraceCreatorQueueProcessor,
@@ -20,11 +21,12 @@ import helmet from "helmet";
 import { cloudUsageMeteringQueueProcessor } from "./queues/cloudUsageMeteringQueue";
 import { WorkerManager } from "./queues/workerManager";
 import {
+  CoreDataS3ExportQueue,
+  DataRetentionQueue,
+  MeteringDataPostgresExportQueue,
+  PostHogIntegrationQueue,
   QueueName,
   logger,
-  PostHogIntegrationQueue,
-  CoreDataS3ExportQueue,
-  MeteringDataPostgresExportQueue,
 } from "@langfuse/shared/src/server";
 import { env } from "./env";
 import { ingestionQueueProcessorBuilder } from "./queues/ingestionQueue";
@@ -38,6 +40,12 @@ import {
 } from "./queues/postHogIntegrationQueue";
 import { coreDataS3ExportProcessor } from "./queues/coreDataS3ExportQueue";
 import { meteringDataPostgresExportProcessor } from "./ee/meteringDataPostgresExport/handleMeteringDataPostgresExportJob";
+import {
+  dataRetentionProcessingProcessor,
+  dataRetentionProcessor,
+} from "./queues/dataRetentionQueue";
+import { batchActionQueueProcessor } from "./queues/batchActionQueue";
+import { scoreDeleteProcessor } from "./queues/scoreDelete";
 
 const app = express();
 
@@ -66,6 +74,16 @@ if (env.QUEUE_CONSUMER_TRACE_UPSERT_QUEUE_IS_ENABLED === "true") {
   WorkerManager.register(
     QueueName.TraceUpsert,
     evalJobTraceCreatorQueueProcessor,
+    {
+      concurrency: env.LANGFUSE_TRACE_UPSERT_WORKER_CONCURRENCY,
+    },
+  );
+}
+
+if (env.QUEUE_CONSUMER_CREATE_EVAL_QUEUE_IS_ENABLED === "true") {
+  WorkerManager.register(
+    QueueName.CreateEvalQueue,
+    evalJobCreatorQueueProcessor,
     {
       concurrency: env.LANGFUSE_EVAL_CREATOR_WORKER_CONCURRENCY,
     },
@@ -101,9 +119,20 @@ if (env.QUEUE_CONSUMER_TRACE_DELETE_QUEUE_IS_ENABLED === "true") {
   WorkerManager.register(QueueName.TraceDelete, traceDeleteProcessor, {
     concurrency: env.LANGFUSE_TRACE_DELETE_CONCURRENCY,
     limiter: {
-      // Process at most `max` delete jobs per 3 seconds
+      // Process at most `max` delete jobs per 15 seconds
       max: env.LANGFUSE_TRACE_DELETE_CONCURRENCY,
-      duration: 3_000,
+      duration: 15_000,
+    },
+  });
+}
+
+if (env.QUEUE_CONSUMER_SCORE_DELETE_QUEUE_IS_ENABLED === "true") {
+  WorkerManager.register(QueueName.ScoreDelete, scoreDeleteProcessor, {
+    concurrency: env.LANGFUSE_SCORE_DELETE_CONCURRENCY,
+    limiter: {
+      // Process at most `max` delete jobs per 15 seconds
+      max: env.LANGFUSE_SCORE_DELETE_CONCURRENCY,
+      duration: 15_000,
     },
   });
 }
@@ -148,6 +177,20 @@ if (env.QUEUE_CONSUMER_BATCH_EXPORT_QUEUE_IS_ENABLED === "true") {
       duration: 5_000,
     },
   });
+}
+
+if (env.QUEUE_CONSUMER_BATCH_ACTION_QUEUE_IS_ENABLED === "true") {
+  WorkerManager.register(
+    QueueName.BatchActionQueue,
+    batchActionQueueProcessor,
+    {
+      concurrency: 1, // only 1 job at a time
+      limiter: {
+        max: 1,
+        duration: 5_000,
+      },
+    },
+  );
 }
 
 if (env.QUEUE_CONSUMER_INGESTION_QUEUE_IS_ENABLED === "true") {
@@ -214,6 +257,23 @@ if (env.QUEUE_CONSUMER_POSTHOG_INTEGRATION_QUEUE_IS_ENABLED === "true") {
   WorkerManager.register(
     QueueName.PostHogIntegrationProcessingQueue,
     postHogIntegrationProcessingProcessor,
+    {
+      concurrency: 1,
+    },
+  );
+}
+
+if (env.QUEUE_CONSUMER_DATA_RETENTION_QUEUE_IS_ENABLED === "true") {
+  // Instantiate the queue to trigger scheduled jobs
+  DataRetentionQueue.getInstance();
+
+  WorkerManager.register(QueueName.DataRetentionQueue, dataRetentionProcessor, {
+    concurrency: 1,
+  });
+
+  WorkerManager.register(
+    QueueName.DataRetentionProcessingQueue,
+    dataRetentionProcessingProcessor,
     {
       concurrency: 1,
     },

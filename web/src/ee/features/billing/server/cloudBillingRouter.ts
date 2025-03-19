@@ -12,7 +12,12 @@ import { TRPCError } from "@trpc/server";
 import * as z from "zod";
 import { throwIfNoOrganizationAccess } from "@/src/features/rbac/utils/checkOrganizationAccess";
 import { auditLog } from "@/src/features/audit-logs/auditLog";
-import { getObservationCountOfProjectsSinceCreationDate } from "@langfuse/shared/src/server";
+import {
+  getObservationCountOfProjectsSinceCreationDate,
+  getScoreCountOfProjectsSinceCreationDate,
+  getTraceCountOfProjectsSinceCreationDate,
+  logger,
+} from "@langfuse/shared/src/server";
 
 export const cloudBillingRouter = createTRPCRouter({
   createStripeCheckoutSession: protectedOrganizationProcedure
@@ -377,85 +382,70 @@ export const cloudBillingRouter = createTRPCRouter({
             end: new Date(subscription.current_period_end * 1000),
           };
 
-          const stripeInvoice = await stripeClient.invoices.retrieveUpcoming({
-            subscription: parsedOrg.cloudConfig.stripe.activeSubscriptionId,
-          });
-          const upcomingInvoice = {
-            usdAmount: stripeInvoice.amount_due / 100,
-            date: new Date(stripeInvoice.period_end * 1000),
-          };
-          const usageInvoiceLines = stripeInvoice.lines.data.filter((line) =>
-            Boolean(line.plan?.meter),
-          );
-          const usage = usageInvoiceLines.reduce((acc, line) => {
-            if (line.quantity) {
-              return acc + line.quantity;
-            }
-            return acc;
-          }, 0);
-          // get meter for usage type (events or observations)
-          const meterId = usageInvoiceLines[0]?.plan?.meter;
-          const meter = meterId
-            ? await stripeClient.billing.meters.retrieve(meterId)
-            : undefined;
+          try {
+            const stripeInvoice = await stripeClient.invoices.retrieveUpcoming({
+              subscription: parsedOrg.cloudConfig.stripe.activeSubscriptionId,
+            });
+            const upcomingInvoice = {
+              usdAmount: stripeInvoice.amount_due / 100,
+              date: new Date(stripeInvoice.period_end * 1000),
+            };
+            const usageInvoiceLines = stripeInvoice.lines.data.filter((line) =>
+              Boolean(line.plan?.meter),
+            );
+            const usage = usageInvoiceLines.reduce((acc, line) => {
+              if (line.quantity) {
+                return acc + line.quantity;
+              }
+              return acc;
+            }, 0);
+            // get meter for usage type (events or observations)
+            const meterId = usageInvoiceLines[0]?.plan?.meter;
+            const meter = meterId
+              ? await stripeClient.billing.meters.retrieve(meterId)
+              : undefined;
 
-          return {
-            usageCount: usage,
-            usageType: meter?.display_name.toLowerCase() ?? "events",
-            billingPeriod,
-            upcomingInvoice,
-          };
+            return {
+              usageCount: usage,
+              usageType: meter?.display_name.toLowerCase() ?? "events",
+              billingPeriod,
+              upcomingInvoice,
+            };
+          } catch (e) {
+            logger.error(
+              "Failed to get usage from Stripe, using usage from Clickhouse",
+              {
+                error: e,
+              },
+            );
+          }
         }
       }
 
-      // Free plan, usage not tracked on Stripe
+      // Free plan, usage not tracked on Stripe, get usage from Clickhouse
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       thirtyDaysAgo.setHours(0, 0, 0, 0);
       const projectIds = organization.projects.map((p) => p.id);
 
-      const countObservations =
-        await getObservationCountOfProjectsSinceCreationDate({
+      const [countTraces, countObservations, countScores] = await Promise.all([
+        getTraceCountOfProjectsSinceCreationDate({
           projectIds,
           start: thirtyDaysAgo,
-        });
-
-      // const usageArr = await Promise.all([
-      //   ctx.prisma.observation.count({
-      //     where: {
-      //       project: {
-      //         orgId: input.orgId,
-      //       },
-      //       createdAt: {
-      //         gte: thirtyDaysAgo,
-      //       },
-      //     },
-      //   }),
-      //   ctx.prisma.trace.count({
-      //     where: {
-      //       project: {
-      //         orgId: input.orgId,
-      //       },
-      //       createdAt: {
-      //         gte: thirtyDaysAgo,
-      //       },
-      //     },
-      //   }),
-      //   ctx.prisma.score.count({
-      //     where: {
-      //       project: {
-      //         orgId: input.orgId,
-      //       },
-      //       createdAt: {
-      //         gte: thirtyDaysAgo,
-      //       },
-      //     },
-      //   }),
-      // ]);
+        }),
+        getObservationCountOfProjectsSinceCreationDate({
+          projectIds,
+          start: thirtyDaysAgo,
+        }),
+        getScoreCountOfProjectsSinceCreationDate({
+          projectIds,
+          start: thirtyDaysAgo,
+        }),
+      ]);
 
       return {
-        usageCount: countObservations,
-        usageType: "observations",
+        usageCount: countTraces + countObservations + countScores,
+        usageType: "events",
       };
     }),
 });

@@ -104,6 +104,7 @@ const events = {
     "new_from_trace_form_open",
     "upload_csv_button_click",
     "upload_csv_form_submit",
+    "delete",
   ],
   dataset_run: [
     "delete_form_open",
@@ -130,6 +131,7 @@ const events = {
   project_settings: [
     "project_delete",
     "rename_form_submit",
+    "retention_form_submit",
     "project_transfer",
     "api_key_delete",
     "api_key_create",
@@ -151,6 +153,7 @@ const events = {
   help_popup: ["opened", "href_clicked"],
   navigate_detail_pages: ["button_click_prev_or_next"],
   support_chat: ["initiated", "opened", "message_sent"], // also used on landing page for consistency
+  cmd_k_menu: ["opened", "search_entered", "navigated"],
 } as const;
 
 // type that represents all possible event names, e.g. "traces:bookmark"

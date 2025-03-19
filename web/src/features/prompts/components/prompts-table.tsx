@@ -1,11 +1,9 @@
-import { PlusIcon } from "lucide-react";
 import { useEffect } from "react";
 import { DataTable } from "@/src/components/table/data-table";
 import TableLink from "@/src/components/table/table-link";
 import { type LangfuseColumnDef } from "@/src/components/table/types";
 import { useDetailPageLists } from "@/src/features/navigate-detail-pages/context";
 import { DeletePrompt } from "@/src/features/prompts/components/delete-prompt";
-import { useHasProjectAccess } from "@/src/features/rbac/utils/checkProjectAccess";
 import useProjectIdFromURL from "@/src/hooks/useProjectIdFromURL";
 import { api } from "@/src/utils/api";
 import { type RouterOutput } from "@/src/utils/types";
@@ -16,12 +14,10 @@ import { useOrderByState } from "@/src/features/orderBy/hooks/useOrderByState";
 import { promptsTableColsWithOptions } from "@/src/server/api/definitions/promptsTable";
 import { NumberParam, useQueryParams, withDefault } from "use-query-params";
 import { createColumnHelper } from "@tanstack/react-table";
-import { usePostHogClientCapture } from "@/src/features/posthog-analytics/usePostHogClientCapture";
 import { joinTableCoreAndMetrics } from "@/src/components/table/utils/joinTableCoreAndMetrics";
 import { Skeleton } from "@/src/components/ui/skeleton";
 import { useDebounce } from "@/src/hooks/useDebounce";
-import { ActionButton } from "@/src/components/ActionButton";
-import { useEntitlementLimit } from "@/src/features/entitlements/hooks";
+import { LocalIsoDate } from "@/src/components/LocalIsoDate";
 
 type PromptTableRow = {
   name: string;
@@ -36,11 +32,6 @@ type PromptTableRow = {
 export function PromptTable() {
   const projectId = useProjectIdFromURL();
   const { setDetailPageList } = useDetailPageLists();
-
-  const hasCUDAccess = useHasProjectAccess({
-    projectId,
-    scope: "prompts:CUD",
-  });
 
   const [filterState, setFilterState] = useQueryFilterState(
     [],
@@ -124,10 +115,7 @@ export function PromptTable() {
   );
   const filterOptionTags = promptFilterOptions.data?.tags ?? [];
   const allTags = filterOptionTags.map((t) => t.value);
-  const capture = usePostHogClientCapture();
   const totalCount = prompts.data?.totalCount ?? null;
-
-  const promptLimit = useEntitlementLimit("prompt-management-count-prompts");
 
   useEffect(() => {
     if (prompts.isSuccess) {
@@ -181,7 +169,7 @@ export function PromptTable() {
       size: 200,
       cell: (row) => {
         const createdAt = row.getValue();
-        return createdAt.toLocaleString();
+        return <LocalIsoDate date={createdAt} />;
       },
     }),
     columnHelper.accessor("numberOfObservations", {
@@ -250,21 +238,6 @@ export function PromptTable() {
         filterState={filterState}
         setFilterState={useDebounce(setFilterState)}
         columnsWithCustomSelect={["labels", "tags"]}
-        actionButtons={
-          <ActionButton
-            icon={<PlusIcon className="h-4 w-4" aria-hidden="true" />}
-            hasAccess={hasCUDAccess}
-            href={`/project/${projectId}/prompts/new`}
-            variant="secondary"
-            limit={promptLimit}
-            limitValue={totalCount ?? 0}
-            onClick={() => {
-              capture("prompts:new_form_open");
-            }}
-          >
-            New prompt
-          </ActionButton>
-        }
       />
       <DataTable
         columns={promptColumns}

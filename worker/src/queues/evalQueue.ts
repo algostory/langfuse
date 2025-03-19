@@ -17,7 +17,10 @@ export const evalJobTraceCreatorQueueProcessor = async (
   job: Job<TQueueJobTypes[QueueName.TraceUpsert]>,
 ) => {
   try {
-    await createEvalJobs({ event: job.data.payload });
+    await createEvalJobs({
+      event: job.data.payload,
+      enforcedJobTimeScope: "NEW", // we must not execute evals which are intended for existing data only.
+    });
     return true;
   } catch (e) {
     logger.error(
@@ -33,11 +36,32 @@ export const evalJobDatasetCreatorQueueProcessor = async (
   job: Job<TQueueJobTypes[QueueName.DatasetRunItemUpsert]>,
 ) => {
   try {
-    await createEvalJobs({ event: job.data.payload });
+    await createEvalJobs({
+      event: job.data.payload,
+      enforcedJobTimeScope: "NEW", // we must not execute evals which are intended for existing data only.
+    });
     return true;
   } catch (e) {
     logger.error(
       `Failed job Evaluation for dataset item: ${job.data.payload.datasetItemId}`,
+      e,
+    );
+    traceException(e);
+    throw e;
+  }
+};
+
+export const evalJobCreatorQueueProcessor = async (
+  job: Job<TQueueJobTypes[QueueName.CreateEvalQueue]>,
+) => {
+  try {
+    await createEvalJobs({
+      event: job.data.payload,
+    });
+    return true;
+  } catch (e) {
+    logger.error(
+      `Failed to create evaluation jobs: ${JSON.stringify(job.data.payload)}`,
       e,
     );
     traceException(e);
@@ -115,6 +139,8 @@ export const evalJobExecutorQueueProcessor = async (
       (e instanceof BaseError && e.message.includes("API key for provider")) || // api key not provided
       (e instanceof ApiError && e.httpCode >= 400 && e.httpCode < 500) || // do not error and retry on 4xx errors. They are visible to the user in the UI but do not alert us.
       (e instanceof ApiError && e.message.includes("TypeError")) || // Zod parsing the response failed. User should update prompt to consistently return expected output structure.
+      (e instanceof ApiError &&
+        e.message.includes("Error: Unterminated string in JSON at position")) || // When evaluator model is configured with too low max_tokens, the structured output response is invalid JSON
       (e instanceof BaseError &&
         e.message.includes(
           "Please ensure the mapped data exists and consider extending the job delay.",

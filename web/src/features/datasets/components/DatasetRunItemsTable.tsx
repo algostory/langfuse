@@ -21,11 +21,13 @@ import {
 import { type ScoreAggregate } from "@langfuse/shared";
 import { useIndividualScoreColumns } from "@/src/features/scores/hooks/useIndividualScoreColumns";
 import useColumnOrder from "@/src/features/column-visibility/hooks/useColumnOrder";
+import { LocalIsoDate } from "@/src/components/LocalIsoDate";
 
 export type DatasetRunItemRowData = {
   id: string;
-  runAt: string;
+  runAt: Date;
   datasetItemId: string;
+  datasetRunName?: string;
   trace?: {
     traceId: string;
     observationId?: string;
@@ -96,6 +98,21 @@ export function DatasetRunItemsTable(
       header: "Run At",
       id: "runAt",
       size: 150,
+      cell: ({ row }) => {
+        const value: DatasetRunItemRowData["runAt"] = row.getValue("runAt");
+        return <LocalIsoDate date={value} />;
+      },
+    },
+    {
+      accessorKey: "datasetRunName",
+      header: "Run Name",
+      id: "datasetRunName",
+      size: 150,
+      cell: ({ row }) => {
+        const datasetRunName: string | undefined =
+          row.getValue("datasetRunName");
+        return datasetRunName || "-";
+      },
     },
     {
       accessorKey: "datasetItemId",
@@ -235,8 +252,9 @@ export function DatasetRunItemsTable(
       ? runItems.data.runItems.map((item) => {
           return {
             id: item.id,
-            runAt: item.createdAt.toLocaleString(),
+            runAt: item.createdAt,
             datasetItemId: item.datasetItemId,
+            datasetRunName: item.datasetRunName,
             trace: !!item.trace?.id
               ? {
                   traceId: item.trace.id,

@@ -47,7 +47,8 @@ const reportToHeader = {
 
 /** @type {import("next").NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@langfuse/shared"],
+  staticPageGenerationTimeout: 500, // default is 60. Required for build process for amd
+  transpilePackages: ["@langfuse/shared", "vis-network/standalone"],
   reactStrictMode: true,
   experimental: {
     instrumentationHook: true,
@@ -78,6 +79,16 @@ const nextConfig = {
 
   async headers() {
     return [
+      {
+        // Add noindex for all pages except root and /auth*
+        source: "/:path((?!auth|^$).*)*",
+        headers: [
+          {
+            key: "X-Robots-Tag",
+            value: "noindex",
+          },
+        ],
+      },
       {
         source: "/:path*",
         headers: [
@@ -168,6 +179,9 @@ const nextConfig = {
       asyncWebAssembly: true,
       layers: true,
     };
+
+    // Exclude Datadog packages from webpack bundling to avoid issues
+    config.externals.push("@datadog/pprof", "dd-trace");
 
     return config;
   },

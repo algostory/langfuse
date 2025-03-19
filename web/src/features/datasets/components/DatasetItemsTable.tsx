@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/src/components/ui/dropdown-menu";
 import { useQueryParams, withDefault, NumberParam } from "use-query-params";
-import { Archive, ListTree, MoreVertical } from "lucide-react";
+import { Archive, ListTree, MoreVertical, Trash2 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { type DatasetItem, DatasetStatus, type Prisma } from "@langfuse/shared";
 import { type LangfuseColumnDef } from "@/src/components/table/types";
@@ -27,6 +27,7 @@ import { useHasProjectAccess } from "@/src/features/rbac/utils/checkProjectAcces
 import { type CsvPreviewResult } from "@/src/features/datasets/lib/csvHelpers";
 import { PreviewCsvImport } from "@/src/features/datasets/components/PreviewCsvImport";
 import { UploadDatasetCsv } from "@/src/features/datasets/components/UploadDatasetCsv";
+import { LocalIsoDate } from "@/src/components/LocalIsoDate";
 
 type RowData = {
   id: string;
@@ -35,7 +36,7 @@ type RowData = {
     observationId?: string;
   };
   status: DatasetItem["status"];
-  createdAt: string;
+  createdAt: Date;
   input: Prisma.JsonValue;
   expectedOutput: Prisma.JsonValue;
   metadata: Prisma.JsonValue;
@@ -85,6 +86,10 @@ export function DatasetItemsTable({
   }, [items.isSuccess, items.data]);
 
   const mutUpdate = api.datasets.updateDatasetItem.useMutation({
+    onSuccess: () => utils.datasets.invalidate(),
+  });
+
+  const mutDelete = api.datasets.deleteDatasetItem.useMutation({
     onSuccess: () => utils.datasets.invalidate(),
   });
 
@@ -154,6 +159,10 @@ export function DatasetItemsTable({
       id: "createdAt",
       size: 150,
       enableHiding: true,
+      cell: ({ row }) => {
+        const value: RowData["createdAt"] = row.getValue("createdAt");
+        return <LocalIsoDate date={value} />;
+      },
     },
     {
       accessorKey: "input",
@@ -241,6 +250,27 @@ export function DatasetItemsTable({
                 <Archive className="mr-2 h-4 w-4" />
                 {status === DatasetStatus.ARCHIVED ? "Unarchive" : "Archive"}
               </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!hasAccess}
+                className="text-destructive"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Are you sure you want to delete this item? This will also delete all run items that belong to this item.",
+                    )
+                  ) {
+                    capture("dataset_item:delete");
+                    mutDelete.mutate({
+                      projectId: projectId,
+                      datasetId: datasetId,
+                      datasetItemId: id,
+                    });
+                  }
+                }}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -260,7 +290,7 @@ export function DatasetItemsTable({
           }
         : undefined,
       status: item.status,
-      createdAt: item.createdAt.toLocaleString(),
+      createdAt: item.createdAt,
       input: item.input,
       expectedOutput: item.expectedOutput,
       metadata: item.metadata,

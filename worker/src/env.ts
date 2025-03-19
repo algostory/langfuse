@@ -7,6 +7,7 @@ const EnvSchema = z.object({
     .enum(["development", "test", "production"])
     .default("development"),
   DATABASE_URL: z.string(),
+  HOSTNAME: z.string().default("0.0.0.0"),
   PORT: z.coerce
     .number({
       description:
@@ -21,6 +22,7 @@ const EnvSchema = z.object({
   LANGFUSE_S3_BATCH_EXPORT_PREFIX: z.string().default(""),
   LANGFUSE_S3_BATCH_EXPORT_REGION: z.string().optional(),
   LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: z.string().optional(),
+  LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: z.string().optional(),
   LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: z.string().optional(),
   LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: z.string().optional(),
   LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: z
@@ -39,11 +41,16 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false"),
 
-  BATCH_EXPORT_ROW_LIMIT: z.coerce.number().positive().default(50_000),
+  BATCH_EXPORT_ROW_LIMIT: z.coerce.number().positive().default(1_500_000),
   BATCH_EXPORT_DOWNLOAD_LINK_EXPIRATION_HOURS: z.coerce
     .number()
     .positive()
     .default(24),
+  BATCH_ACTION_EXPORT_ROW_LIMIT: z.coerce.number().positive().default(50_000),
+  LANGFUSE_MAX_HISTORIC_EVAL_CREATION_LIMIT: z.coerce
+    .number()
+    .positive()
+    .default(50_000),
   EMAIL_FROM_ADDRESS: z.string().optional(),
   SMTP_CONNECTION_URL: z.string().optional(),
   LANGFUSE_INGESTION_QUEUE_PROCESSING_CONCURRENCY: z.coerce
@@ -86,12 +93,16 @@ const EnvSchema = z.object({
   CLICKHOUSE_CLUSTER_NAME: z.string().default("default"),
   CLICKHOUSE_DB: z.string().default("default"),
   CLICKHOUSE_PASSWORD: z.string(),
-
   LANGFUSE_EVAL_CREATOR_WORKER_CONCURRENCY: z.coerce
+    .number()
+    .positive()
+    .default(2),
+  LANGFUSE_TRACE_UPSERT_WORKER_CONCURRENCY: z.coerce
     .number()
     .positive()
     .default(25),
   LANGFUSE_TRACE_DELETE_CONCURRENCY: z.coerce.number().positive().default(1),
+  LANGFUSE_SCORE_DELETE_CONCURRENCY: z.coerce.number().positive().default(1),
   LANGFUSE_PROJECT_DELETE_CONCURRENCY: z.coerce.number().positive().default(1),
   LANGFUSE_EVAL_EXECUTION_WORKER_CONCURRENCY: z.coerce
     .number()
@@ -122,6 +133,10 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("true"),
 
+  LANGFUSE_ENABLE_REDIS_SEEN_EVENT_CACHE: z
+    .enum(["true", "false"])
+    .default("false"),
+
   // Flags to toggle queue consumers on or off.
   QUEUE_CONSUMER_CLOUD_USAGE_METERING_QUEUE_IS_ENABLED: z
     .enum(["true", "false"])
@@ -132,13 +147,22 @@ const EnvSchema = z.object({
   QUEUE_CONSUMER_BATCH_EXPORT_QUEUE_IS_ENABLED: z
     .enum(["true", "false"])
     .default("true"),
+  QUEUE_CONSUMER_BATCH_ACTION_QUEUE_IS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true"),
   QUEUE_CONSUMER_EVAL_EXECUTION_QUEUE_IS_ENABLED: z
     .enum(["true", "false"])
     .default("true"),
   QUEUE_CONSUMER_TRACE_UPSERT_QUEUE_IS_ENABLED: z
     .enum(["true", "false"])
     .default("true"),
+  QUEUE_CONSUMER_CREATE_EVAL_QUEUE_IS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true"),
   QUEUE_CONSUMER_TRACE_DELETE_QUEUE_IS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true"),
+  QUEUE_CONSUMER_SCORE_DELETE_QUEUE_IS_ENABLED: z
     .enum(["true", "false"])
     .default("true"),
   QUEUE_CONSUMER_PROJECT_DELETE_QUEUE_IS_ENABLED: z
@@ -156,6 +180,9 @@ const EnvSchema = z.object({
   QUEUE_CONSUMER_INGESTION_SECONDARY_QUEUE_IS_ENABLED: z
     .enum(["true", "false"])
     .default("true"),
+  QUEUE_CONSUMER_DATA_RETENTION_QUEUE_IS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true"),
 
   // Core data S3 upload - Langfuse Cloud
   LANGFUSE_S3_CORE_DATA_EXPORT_IS_ENABLED: z
@@ -171,10 +198,23 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false"),
 
+  // Media upload
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: z.string().optional(),
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: z.string().default(""),
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: z.string().optional(),
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: z.string().optional(),
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: z.string().optional(),
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: z.string().optional(),
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: z
+    .enum(["true", "false"])
+    .default("false"),
+
   // Metering data Postgres export - Langfuse Cloud
   LANGFUSE_POSTGRES_METERING_DATA_EXPORT_IS_ENABLED: z
     .enum(["true", "false"])
     .default("false"),
+
+  LANGFUSE_S3_CONCURRENT_READS: z.coerce.number().positive().default(50),
 });
 
 export const env: z.infer<typeof EnvSchema> =

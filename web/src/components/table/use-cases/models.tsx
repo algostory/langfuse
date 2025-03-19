@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import { DataTable } from "@/src/components/table/data-table";
 import { type LangfuseColumnDef } from "@/src/components/table/types";
 import useColumnVisibility from "@/src/features/column-visibility/hooks/useColumnVisibility";
@@ -29,6 +27,7 @@ import { UpsertModelFormDrawer } from "@/src/features/models/components/UpsertMo
 import { ActionButton } from "@/src/components/ActionButton";
 import { usePostHogClientCapture } from "@/src/features/posthog-analytics/usePostHogClientCapture";
 import { useHasProjectAccess } from "@/src/features/rbac/utils/checkProjectAccess";
+import { SettingsTableCard } from "@/src/components/layouts/settings-table-card";
 
 export type ModelTableRow = {
   modelId: string;
@@ -88,13 +87,6 @@ export default function ModelTable({ projectId }: { projectId: string }) {
     scope: "models:CUD",
   });
 
-  // Set row height to medium if small as view is not optimized for small row heights
-  useEffect(() => {
-    if (rowHeight === "s") {
-      setRowHeight("m");
-    }
-  }, [rowHeight, setRowHeight]);
-
   const columns: LangfuseColumnDef<ModelTableRow>[] = [
     {
       accessorKey: "modelName",
@@ -105,7 +97,7 @@ export default function ModelTable({ projectId }: { projectId: string }) {
       },
       cell: ({ row }) => {
         return (
-          <span className="font-mono text-xs font-semibold">
+          <span className="truncate font-mono text-xs font-semibold">
             {row.original.modelName}
           </span>
         );
@@ -152,7 +144,7 @@ export default function ModelTable({ projectId }: { projectId: string }) {
         const value: string = row.getValue("matchPattern");
 
         return value ? (
-          <span className="font-mono text-xs">{value}</span>
+          <span className="truncate font-mono text-xs">{value}</span>
         ) : null;
       },
     },
@@ -299,39 +291,41 @@ export default function ModelTable({ projectId }: { projectId: string }) {
             </ActionButton>
           </UpsertModelFormDrawer>
         }
+        className="px-0"
       />
-      <DataTable
-        className="flex max-h-[60dvh] flex-col overflow-hidden"
-        columns={columns}
-        data={
-          models.isLoading
-            ? { isLoading: true, isError: false }
-            : models.isError
-              ? {
-                  isLoading: false,
-                  isError: true,
-                  error: models.error.message,
-                }
-              : {
-                  isLoading: false,
-                  isError: false,
-                  data: models.data.models.map((t) => convertToTableRow(t)),
-                }
-        }
-        pagination={{
-          totalCount,
-          onChange: setPaginationState,
-          state: paginationState,
-        }}
-        columnVisibility={columnVisibility}
-        onColumnVisibilityChange={setColumnVisibility}
-        columnOrder={columnOrder}
-        onColumnOrderChange={setColumnOrder}
-        rowHeight={rowHeight}
-        onRowClick={(row) => {
-          router.push(`/project/${projectId}/settings/models/${row.modelId}`);
-        }}
-      />
+      <SettingsTableCard>
+        <DataTable
+          columns={columns}
+          data={
+            models.isLoading
+              ? { isLoading: true, isError: false }
+              : models.isError
+                ? {
+                    isLoading: false,
+                    isError: true,
+                    error: models.error.message,
+                  }
+                : {
+                    isLoading: false,
+                    isError: false,
+                    data: models.data.models.map((t) => convertToTableRow(t)),
+                  }
+          }
+          pagination={{
+            totalCount,
+            onChange: setPaginationState,
+            state: paginationState,
+          }}
+          columnVisibility={columnVisibility}
+          onColumnVisibilityChange={setColumnVisibility}
+          columnOrder={columnOrder}
+          onColumnOrderChange={setColumnOrder}
+          rowHeight={rowHeight}
+          onRowClick={(row) => {
+            router.push(`/project/${projectId}/settings/models/${row.modelId}`);
+          }}
+        />
+      </SettingsTableCard>
     </>
   );
 }

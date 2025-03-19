@@ -29,10 +29,16 @@ import TagList from "@/src/features/tag/components/TagList";
 import { useRowHeightLocalStorage } from "@/src/components/table/data-table-row-height-switch";
 import { cn } from "@/src/utils/tailwind";
 import useColumnOrder from "@/src/features/column-visibility/hooks/useColumnOrder";
+import { LocalIsoDate } from "@/src/components/LocalIsoDate";
+import {
+  useEnvironmentFilter,
+  convertSelectedEnvironmentsToFilter,
+} from "@/src/hooks/use-environment-filter";
+import { Badge } from "@/src/components/ui/badge";
 
 export type SessionTableRow = {
   id: string;
-  createdAt: string;
+  createdAt: Date;
   bookmarked: boolean;
   userIds: string[] | undefined;
   countTraces: number | undefined;
@@ -44,6 +50,7 @@ export type SessionTableRow = {
   outputTokens: number | undefined;
   totalTokens: number | undefined;
   traceTags: string[] | undefined;
+  environment?: string;
 };
 
 export type SessionTableProps = {
@@ -89,7 +96,34 @@ export default function SessionsTable({
       ]
     : [];
 
-  const filterState = userFilterState.concat(userIdFilter, dateRangeFilter);
+  const environmentFilterOptions =
+    api.projects.environmentFilterOptions.useQuery(
+      { projectId },
+      {
+        trpc: { context: { skipBatch: true } },
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        staleTime: Infinity,
+      },
+    );
+
+  const environmentOptions =
+    environmentFilterOptions.data?.map((value) => value.environment) || [];
+
+  const { selectedEnvironments, setSelectedEnvironments } =
+    useEnvironmentFilter(environmentOptions, projectId);
+
+  const environmentFilter = convertSelectedEnvironmentsToFilter(
+    ["environment"],
+    selectedEnvironments,
+  );
+
+  const filterState = userFilterState.concat(
+    userIdFilter,
+    dateRangeFilter,
+    environmentFilter,
+  );
 
   const [paginationState, setPaginationState] = useQueryParams({
     pageIndex: withDefault(NumberParam, 0),
@@ -219,6 +253,10 @@ export default function SessionsTable({
       size: 150,
       enableHiding: true,
       enableSorting: true,
+      cell: ({ row }) => {
+        const value: SessionTableRow["createdAt"] = row.getValue("createdAt");
+        return value ? <LocalIsoDate date={value} /> : undefined;
+      },
     },
     {
       accessorKey: "sessionDuration",
@@ -237,6 +275,25 @@ export default function SessionsTable({
           : undefined;
       },
       enableSorting: true,
+    },
+    {
+      accessorKey: "environment",
+      header: "Environment",
+      id: "environment",
+      size: 150,
+      enableHiding: true,
+      cell: ({ row }) => {
+        const value: SessionTableRow["environment"] =
+          row.getValue("environment");
+        return value ? (
+          <Badge
+            variant="secondary"
+            className="max-w-fit truncate rounded-sm px-1 font-normal"
+          >
+            {value}
+          </Badge>
+        ) : null;
+      },
     },
     {
       accessorKey: "userIds",
@@ -484,6 +541,11 @@ export default function SessionsTable({
         columnsWithCustomSelect={["userIds"]}
         rowHeight={rowHeight}
         setRowHeight={setRowHeight}
+        environmentFilter={{
+          values: selectedEnvironments,
+          onValueChange: setSelectedEnvironments,
+          options: environmentOptions.map((env) => ({ value: env })),
+        }}
       />
       <DataTable
         columns={columns}
@@ -503,7 +565,7 @@ export default function SessionsTable({
                     (session) => ({
                       id: session.id,
                       bookmarked: session.bookmarked,
-                      createdAt: session.createdAt.toLocaleString(),
+                      createdAt: session.createdAt,
                       userIds: session.userIds,
                       countTraces: session.countTraces,
                       sessionDuration: session.sessionDuration,
@@ -514,6 +576,7 @@ export default function SessionsTable({
                       outputTokens: session.completionTokens,
                       totalTokens: session.totalTokens,
                       traceTags: session.traceTags,
+                      environment: session.environment,
                     }),
                   ),
                 }

@@ -5,6 +5,7 @@ import { throwIfNoProjectAccess } from "@/src/features/rbac/utils/checkProjectAc
 import {
   createTRPCRouter,
   protectedProjectProcedure,
+  protectedProjectProcedureWithoutTracing,
 } from "@/src/server/api/trpc";
 import {
   type ChatMessage,
@@ -27,7 +28,7 @@ export function getDisplaySecretKey(secretKey: string) {
 }
 
 export const llmApiKeyRouter = createTRPCRouter({
-  create: protectedProjectProcedure
+  create: protectedProjectProcedureWithoutTracing
     .input(CreateLlmApiKey)
     .mutation(async ({ input, ctx }) => {
       try {
@@ -150,7 +151,7 @@ export const llmApiKeyRouter = createTRPCRouter({
       };
     }),
 
-  test: protectedProjectProcedure
+  test: protectedProjectProcedureWithoutTracing
     .input(CreateLlmApiKey)
     .mutation(async ({ input }) => {
       try {
@@ -178,6 +179,7 @@ export const llmApiKeyRouter = createTRPCRouter({
             adapter: input.adapter,
             provider: input.provider,
             model,
+            top_p: 0.9, // Langchain sets 1 as default that is not supported HuggingFace
           },
           baseURL: input.baseURL,
           apiKey: input.secretKey,

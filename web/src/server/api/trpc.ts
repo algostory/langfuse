@@ -180,6 +180,10 @@ export const protectedProcedure = withOtelTracingProcedure
   .use(withErrorHandling)
   .use(enforceUserIsAuthed);
 
+export const protectedProcedureWithoutTracing = t.procedure
+  .use(withErrorHandling)
+  .use(enforceUserIsAuthed);
+
 const inputProjectSchema = z.object({
   projectId: z.string(),
 });
@@ -267,6 +271,10 @@ const enforceUserIsAuthedAndProjectMember = t.middleware(
 );
 
 export const protectedProjectProcedure = withOtelTracingProcedure
+  .use(withErrorHandling)
+  .use(enforceUserIsAuthedAndProjectMember);
+
+export const protectedProjectProcedureWithoutTracing = t.procedure
   .use(withErrorHandling)
   .use(enforceUserIsAuthedAndProjectMember);
 
@@ -358,7 +366,26 @@ const enforceTraceAccess = t.middleware(async ({ ctx, rawInput, next }) => {
     .flatMap((org) => org.projects)
     .find(({ id }) => id === projectId);
 
-  if (!trace.public && !sessionProject && ctx.session?.user?.admin !== true) {
+  const traceSession = !!trace.sessionId
+    ? await ctx.prisma.traceSession.findFirst({
+        where: {
+          id: trace.sessionId,
+          projectId,
+        },
+        select: {
+          public: true,
+        },
+      })
+    : null;
+
+  const isSessionPublic = traceSession?.public === true;
+
+  if (
+    !trace.public &&
+    !sessionProject &&
+    !isSessionPublic &&
+    ctx.session?.user?.admin !== true
+  ) {
     logger.error(
       `User ${ctx.session?.user?.id} is not a member of project ${projectId}`,
     );
@@ -375,6 +402,7 @@ const enforceTraceAccess = t.middleware(async ({ ctx, rawInput, next }) => {
         projectRole:
           ctx.session?.user?.admin === true ? Role.OWNER : sessionProject?.role,
       },
+      trace: trace, // pass the trace to the next middleware so we do not need to fetch it again
     },
   });
 });

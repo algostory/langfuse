@@ -1,10 +1,9 @@
 import type { ZodSchema } from "zod";
 
-import { CallbackHandler } from "langfuse-langchain";
-
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatVertexAI } from "@langchain/google-vertexai";
 import { ChatBedrockConverse } from "@langchain/aws";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import {
   AIMessage,
   BaseMessage,
@@ -21,26 +20,19 @@ import GCPServiceAccountKeySchema, {
   BedrockConfigSchema,
   BedrockCredentialSchema,
 } from "../../interfaces/customLLMProviderConfigSchemas";
-import { AuthHeaderValidVerificationResult } from "../auth/types";
-import {
-  processEventBatch,
-  type TokenCountDelegate,
-} from "../ingestion/processEventBatch";
+import { processEventBatch } from "../ingestion/processEventBatch";
 import { logger } from "../logger";
-import { ChatMessage, ChatMessageRole, LLMAdapter, ModelParams } from "./types";
-
+import {
+  ChatMessage,
+  ChatMessageRole,
+  LLMAdapter,
+  ModelParams,
+  TraceParams,
+} from "./types";
+import { CallbackHandler } from "langfuse-langchain";
 import type { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 
 type ProcessTracedEvents = () => Promise<void>;
-
-export type TraceParams = {
-  traceName: string;
-  traceId: string;
-  projectId: string;
-  tags: string[];
-  tokenCountDelegate: TokenCountDelegate;
-  authCheck: AuthHeaderValidVerificationResult;
-};
 
 type LLMCompletionParams = {
   messages: ChatMessage[];
@@ -53,6 +45,7 @@ type LLMCompletionParams = {
   maxRetries?: number;
   config?: Record<string, string> | null;
   traceParams?: TraceParams;
+  throwOnError?: boolean; // default is true
 };
 
 type FetchLLMCompletionParams = LLMCompletionParams & {
@@ -102,6 +95,7 @@ export async function fetchLLMCompletion(
     config,
     traceParams,
     extraHeaders,
+    throwOnError = true,
   } = params;
 
   let finalCallbacks: BaseCallbackHandler[] | undefined = callbacks ?? [];
@@ -113,7 +107,6 @@ export async function fetchLLMCompletion(
       _isLocalEventExportEnabled: true,
       tags: traceParams.tags,
     });
-
     finalCallbacks.push(handler);
 
     processTracedEvents = async () => {
@@ -141,7 +134,10 @@ export async function fetchLLMCompletion(
     finalMessages = messages.map((message) => {
       if (message.role === ChatMessageRole.User)
         return new HumanMessage(message.content);
-      if (message.role === ChatMessageRole.System)
+      if (
+        message.role === ChatMessageRole.System ||
+        message.role === ChatMessageRole.Developer
+      )
         return new SystemMessage(message.content);
 
       return new AIMessage(message.content);
@@ -154,7 +150,8 @@ export async function fetchLLMCompletion(
     | ChatOpenAI
     | ChatAnthropic
     | ChatBedrockConverse
-    | ChatVertexAI;
+    | ChatVertexAI
+    | ChatGoogleGenerativeAI;
   if (modelParams.adapter === LLMAdapter.Anthropic) {
     chatModel = new ChatAnthropic({
       anthropicApiKey: apiKey,
@@ -194,6 +191,9 @@ export async function fetchLLMCompletion(
       callbacks: finalCallbacks,
       maxRetries,
       timeout: 1000 * 60 * 2, // 2 minutes timeout
+      configuration: {
+        defaultHeaders: extraHeaders,
+      },
     });
   } else if (modelParams.adapter === LLMAdapter.Bedrock) {
     const { region } = BedrockConfigSchema.parse(config);
@@ -227,6 +227,16 @@ export async function fetchLLMCompletion(
         credentials,
       },
     });
+  } else if (modelParams.adapter === LLMAdapter.GoogleAIStudio) {
+    chatModel = new ChatGoogleGenerativeAI({
+      model: modelParams.model,
+      temperature: modelParams.temperature,
+      maxOutputTokens: modelParams.max_tokens,
+      topP: modelParams.top_p,
+      callbacks: finalCallbacks,
+      maxRetries,
+      apiKey,
+    });
   } else {
     // eslint-disable-next-line no-unused-vars
     const _exhaustiveCheck: never = modelParams.adapter;
@@ -239,20 +249,21 @@ export async function fetchLLMCompletion(
     runName: traceParams?.traceName,
   };
 
-  if (params.structuredOutputSchema) {
-    return {
-      completion: await (chatModel as ChatOpenAI) // Typecast necessary due to https://github.com/langchain-ai/langchainjs/issues/6795
-        .withStructuredOutput(params.structuredOutputSchema)
-        .invoke(finalMessages, runConfig),
-      processTracedEvents,
-    };
-  }
+  try {
+    if (params.structuredOutputSchema) {
+      return {
+        completion: await (chatModel as ChatOpenAI) // Typecast necessary due to https://github.com/langchain-ai/langchainjs/issues/6795
+          .withStructuredOutput(params.structuredOutputSchema)
+          .invoke(finalMessages, runConfig),
+        processTracedEvents,
+      };
+    }
 
-  /*
-  Workaround OpenAI o1 while in beta:
+    /*
+  Workaround OpenAI reasoning models:
   
-  This is a temporary workaround to avoid sending system messages to OpenAI's O1 models.
-  O1 models do not support in beta:
+  This is a temporary workaround to avoid sending unsupported parameters to OpenAI's O1 models.
+  O1 models do not support:
   - system messages
   - top_p
   - max_tokens at all, one has to use max_completion_tokens instead
@@ -260,43 +271,58 @@ export async function fetchLLMCompletion(
 
   Reference: https://platform.openai.com/docs/guides/reasoning/beta-limitations
   */
-  if (modelParams.model.startsWith("o1-")) {
-    return {
-      completion: await new ChatOpenAI({
-        openAIApiKey: apiKey,
-        modelName: modelParams.model,
-        temperature: 1,
-        maxTokens: undefined,
-        topP: undefined,
-        callbacks,
-        maxRetries,
-        configuration: {
-          baseURL,
-        },
-        timeout: 1000 * 60 * 2, // 2 minutes timeout
-      })
-        .pipe(new StringOutputParser())
-        .invoke(
-          finalMessages.filter((message) => message._getType() !== "system"),
-          runConfig,
-        ),
-      processTracedEvents,
-    };
-  }
+    if (
+      modelParams.model.startsWith("o1-") ||
+      modelParams.model.startsWith("o3-")
+    ) {
+      const filteredMessages = finalMessages.filter((message) => {
+        return (
+          modelParams.model.startsWith("o3-") || message._getType() !== "system"
+        );
+      });
 
-  if (streaming) {
+      return {
+        completion: await new ChatOpenAI({
+          openAIApiKey: apiKey,
+          modelName: modelParams.model,
+          temperature: 1,
+          maxTokens: undefined,
+          topP: undefined,
+          callbacks,
+          maxRetries,
+          modelKwargs: {
+            max_completion_tokens: modelParams.max_tokens,
+          },
+          configuration: {
+            baseURL,
+          },
+          timeout: 1000 * 60 * 2, // 2 minutes timeout
+        })
+          .pipe(new StringOutputParser())
+          .invoke(filteredMessages, runConfig),
+        processTracedEvents,
+      };
+    }
+
+    if (streaming) {
+      return {
+        completion: await chatModel
+          .pipe(new BytesOutputParser())
+          .stream(finalMessages, runConfig),
+        processTracedEvents,
+      };
+    }
+
     return {
       completion: await chatModel
-        .pipe(new BytesOutputParser())
-        .stream(finalMessages, runConfig),
+        .pipe(new StringOutputParser())
+        .invoke(finalMessages, runConfig),
       processTracedEvents,
     };
+  } catch (error) {
+    if (throwOnError) {
+      throw error;
+    }
+    return { completion: null, processTracedEvents };
   }
-
-  return {
-    completion: await chatModel
-      .pipe(new StringOutputParser())
-      .invoke(finalMessages, runConfig),
-    processTracedEvents,
-  };
 }

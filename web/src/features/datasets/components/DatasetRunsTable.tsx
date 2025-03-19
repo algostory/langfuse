@@ -20,7 +20,7 @@ import {
 } from "@/src/features/scores/components/ScoreDetailColumnHelpers";
 import { type ScoreAggregate } from "@langfuse/shared";
 import { useIndividualScoreColumns } from "@/src/features/scores/hooks/useIndividualScoreColumns";
-import { ChevronDown, Columns3, MoreVertical } from "lucide-react";
+import { ChevronDown, Columns3, MoreVertical, Trash } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,11 +45,19 @@ import { Card, CardContent } from "@/src/components/ui/card";
 import { CompareViewAdapter } from "@/src/features/scores/adapters";
 import { isNumericDataType } from "@/src/features/scores/lib/helpers";
 import { usePostHogClientCapture } from "@/src/features/posthog-analytics/usePostHogClientCapture";
+import { LocalIsoDate } from "@/src/components/LocalIsoDate";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/src/components/ui/dialog";
 
 export type DatasetRunRowData = {
   id: string;
   name: string;
-  createdAt: string;
+  createdAt: Date;
   countRunItems: string;
   avgLatency: number | undefined;
   avgTotalCost: string | undefined;
@@ -63,12 +71,23 @@ const DatasetRunTableMultiSelectAction = ({
   selectedRunIds,
   projectId,
   datasetId,
+  setRowSelection,
 }: {
   selectedRunIds: string[];
   projectId: string;
   datasetId: string;
+  setRowSelection: (value: Record<string, boolean>) => void;
 }) => {
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const capture = usePostHogClientCapture();
+  const utils = api.useUtils();
+  const mutDelete = api.datasets.deleteDatasetRuns.useMutation({
+    onSuccess: () => {
+      utils.datasets.invalidate();
+      setRowSelection({});
+    },
+  });
+
   return (
     <>
       <DropdownMenu>
@@ -97,8 +116,48 @@ const DatasetRunTableMultiSelectAction = ({
               <span>Compare</span>
             </DropdownMenuItem>
           </Link>
+          <DropdownMenuItem onClick={() => setIsDeleteDialogOpen(true)}>
+            <Trash className="mr-2 h-4 w-4" />
+            <span>Delete</span>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(isOpen) => {
+          if (!mutDelete.isLoading) {
+            setIsDeleteDialogOpen(isOpen);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="mb-4">Please confirm</DialogTitle>
+            <DialogDescription className="text-md p-0">
+              This action cannot be undone and removes all the data associated
+              with {selectedRunIds.length} dataset run
+              {selectedRunIds.length > 1 ? "s" : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          <Button
+            variant="destructive"
+            loading={mutDelete.isLoading}
+            disabled={mutDelete.isLoading}
+            onClick={async (event) => {
+              event.preventDefault();
+              capture("dataset_run:delete_form_submit");
+              await mutDelete.mutateAsync({
+                projectId,
+                datasetRunIds: selectedRunIds,
+              });
+              setIsDeleteDialogOpen(false);
+            }}
+          >
+            Delete Dataset Runs
+          </Button>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
@@ -108,7 +167,6 @@ export function DatasetRunsTable(props: {
   datasetId: string;
   selectedMetrics: string[];
   setScoreOptions: (options: { key: string; value: string }[]) => void;
-  menuItems?: React.ReactNode;
 }) {
   const [paginationState, setPaginationState] = useQueryParams({
     pageIndex: withDefault(NumberParam, 0),
@@ -316,6 +374,10 @@ export function DatasetRunsTable(props: {
       id: "createdAt",
       size: 150,
       enableHiding: true,
+      cell: ({ row }) => {
+        const value: DatasetRunRowData["createdAt"] = row.getValue("createdAt");
+        return <LocalIsoDate date={value} />;
+      },
     },
     {
       accessorKey: "metadata",
@@ -352,7 +414,6 @@ export function DatasetRunsTable(props: {
               <DeleteDatasetRunButton
                 projectId={props.projectId}
                 datasetRunId={id}
-                fullWidth
               />
             </DropdownMenuContent>
           </DropdownMenu>
@@ -367,7 +428,7 @@ export function DatasetRunsTable(props: {
     return {
       id: item.id,
       name: item.name,
-      createdAt: item.createdAt.toLocaleString(),
+      createdAt: item.createdAt,
       countRunItems: item.countRunItems.toString(),
       avgLatency: item.avgLatency,
       avgTotalCost: item.avgTotalCost
@@ -396,7 +457,7 @@ export function DatasetRunsTable(props: {
     <>
       {Boolean(props.selectedMetrics.length) &&
         Boolean(runAggregatedMetrics?.size) && (
-          <Card className="my-4 max-h-[25dvh] md:max-h-[30dvh]">
+          <Card className="my-4 max-h-64">
             <CardContent className="mt-2 h-full">
               <div className="flex h-full w-full gap-4 overflow-x-auto">
                 {props.selectedMetrics.map((key) => {
@@ -448,7 +509,6 @@ export function DatasetRunsTable(props: {
         rowHeight={rowHeight}
         setRowHeight={setRowHeight}
         actionButtons={[
-          props.menuItems,
           Object.keys(selectedRows).filter((runId) =>
             runs.data?.runs.map((run) => run.id).includes(runId),
           ).length > 0 ? (
@@ -459,6 +519,7 @@ export function DatasetRunsTable(props: {
               )}
               projectId={props.projectId}
               datasetId={props.datasetId}
+              setRowSelection={setSelectedRows}
             />
           ) : null,
         ]}
