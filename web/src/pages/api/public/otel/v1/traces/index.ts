@@ -23,11 +23,11 @@ export default withMiddlewares({
     responseSchema: z.any(),
     rateLimitResource: "ingestion",
     fn: async ({ req, res, auth }) => {
-      let body: Buffer;
+      let body: any;
       try {
         body = await new Promise((resolve, reject) => {
           let data: any[] = [];
-          req.on("data", (chunk) => data.push(chunk));
+          req.on("data", (chunk: any) => data.push(chunk));
           req.on("end", () => resolve(Buffer.concat(data)));
           req.on("error", reject);
         });
