@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { NonEmptyString, jsonSchema } from "../../utils/zod";
 import { ModelUsageUnit } from "../../constants";
-import { type ScoreSourceType } from "../repositories";
+import { ScoreSourceType } from "../../domain";
+import { applyScoreValidation } from "../../utils/scores";
 
 export const idSchema = z
   .string()
@@ -81,10 +82,10 @@ const OpenAICompletionUsageSchema = z
     completion_tokens: z.number().int().nonnegative(),
     total_tokens: z.number().int().nonnegative(),
     prompt_tokens_details: z
-      .record(z.string(), z.number().int().nonnegative())
+      .record(z.string(), z.number().int().nonnegative().nullish())
       .nullish(),
     completion_tokens_details: z
-      .record(z.string(), z.number().int().nonnegative())
+      .record(z.string(), z.number().int().nonnegative().nullish())
       .nullish(),
   })
   .strict()
@@ -110,15 +111,19 @@ const OpenAICompletionUsageSchema = z
 
     if (prompt_tokens_details) {
       for (const [key, value] of Object.entries(prompt_tokens_details)) {
-        result[`input_${key}`] = value;
-        result.input = Math.max(result.input - (value ?? 0), 0);
+        if (value !== null && value !== undefined) {
+          result[`input_${key}`] = value;
+          result.input = Math.max(result.input - (value ?? 0), 0);
+        }
       }
     }
 
     if (completion_tokens_details) {
       for (const [key, value] of Object.entries(completion_tokens_details)) {
-        result[`output_${key}`] = value;
-        result.output = Math.max(result.output - (value ?? 0), 0);
+        if (value !== null && value !== undefined) {
+          result[`output_${key}`] = value;
+          result.output = Math.max(result.output - (value ?? 0), 0);
+        }
       }
     }
 
@@ -133,10 +138,10 @@ const OpenAIResponseUsageSchema = z
     output_tokens: z.number().int().nonnegative(),
     total_tokens: z.number().int().nonnegative(),
     input_tokens_details: z
-      .record(z.string(), z.number().int().nonnegative())
+      .record(z.string(), z.number().int().nonnegative().nullish())
       .nullish(),
     output_tokens_details: z
-      .record(z.string(), z.number().int().nonnegative())
+      .record(z.string(), z.number().int().nonnegative().nullish())
       .nullish(),
   })
   .strict()
@@ -162,15 +167,19 @@ const OpenAIResponseUsageSchema = z
 
     if (input_tokens_details) {
       for (const [key, value] of Object.entries(input_tokens_details)) {
-        result[`input_${key}`] = value;
-        result.input = Math.max(result.input - (value ?? 0), 0);
+        if (value !== null && value !== undefined) {
+          result[`input_${key}`] = value;
+          result.input = Math.max(result.input - (value ?? 0), 0);
+        }
       }
     }
 
     if (output_tokens_details) {
       for (const [key, value] of Object.entries(output_tokens_details)) {
-        result[`output_${key}`] = value;
-        result.output = Math.max(result.output - (value ?? 0), 0);
+        if (value !== null && value !== undefined) {
+          result[`output_${key}`] = value;
+          result.output = Math.max(result.output - (value ?? 0), 0);
+        }
       }
     }
 
@@ -308,10 +317,13 @@ export const UpdateGenerationBody = UpdateSpanBody.extend({
 const BaseScoreBody = z.object({
   id: idSchema.nullish(),
   name: NonEmptyString,
-  traceId: z.string(),
+  traceId: z.string().nullish(),
+  sessionId: z.string().nullish(),
+  datasetRunId: z.string().nullish(),
   environment: EnvironmentName,
   observationId: z.string().nullish(),
   comment: z.string().nullish(),
+  metadata: jsonSchema.nullish(),
   source: z
     .enum(["API", "EVAL", "ANNOTATION"])
     .default("API" as ScoreSourceType),
@@ -320,39 +332,41 @@ const BaseScoreBody = z.object({
 /**
  * ScoreBody exactly mirrors `PostScoresBody` in the public API. Please refer there for source of truth.
  */
-export const ScoreBody = z.discriminatedUnion("dataType", [
-  BaseScoreBody.merge(
-    z.object({
-      value: z.number(),
-      dataType: z.literal("NUMERIC"),
-      configId: z.string().nullish(),
-    }),
-  ),
-  BaseScoreBody.merge(
-    z.object({
-      value: z.string(),
-      dataType: z.literal("CATEGORICAL"),
-      configId: z.string().nullish(),
-    }),
-  ),
-  BaseScoreBody.merge(
-    z.object({
-      value: z.number().refine((value) => value === 0 || value === 1, {
-        message:
-          "Value must be a number equal to either 0 or 1 for data type BOOLEAN",
+export const ScoreBody = applyScoreValidation(
+  z.discriminatedUnion("dataType", [
+    BaseScoreBody.merge(
+      z.object({
+        value: z.number(),
+        dataType: z.literal("NUMERIC"),
+        configId: z.string().nullish(),
       }),
-      dataType: z.literal("BOOLEAN"),
-      configId: z.string().nullish(),
-    }),
-  ),
-  BaseScoreBody.merge(
-    z.object({
-      value: z.union([z.string(), z.number()]),
-      dataType: z.undefined(),
-      configId: z.string().nullish(),
-    }),
-  ),
-]);
+    ),
+    BaseScoreBody.merge(
+      z.object({
+        value: z.string(),
+        dataType: z.literal("CATEGORICAL"),
+        configId: z.string().nullish(),
+      }),
+    ),
+    BaseScoreBody.merge(
+      z.object({
+        value: z.number().refine((value) => value === 0 || value === 1, {
+          message:
+            "Value must be a number equal to either 0 or 1 for data type BOOLEAN",
+        }),
+        dataType: z.literal("BOOLEAN"),
+        configId: z.string().nullish(),
+      }),
+    ),
+    BaseScoreBody.merge(
+      z.object({
+        value: z.union([z.string(), z.number()]),
+        dataType: z.undefined(),
+        configId: z.string().nullish(),
+      }),
+    ),
+  ]),
+);
 
 // LEGACY, only required for backwards compatibility
 export const LegacySpanPostSchema = z.object({

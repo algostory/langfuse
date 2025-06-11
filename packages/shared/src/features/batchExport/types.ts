@@ -4,6 +4,7 @@ import { BatchExport } from "@prisma/client";
 
 import { singleFilter } from "../../interfaces/filters";
 import { orderBy } from "../../interfaces/orderBy";
+import { BatchTableNames } from "../../interfaces/tableNames";
 
 export enum BatchExportStatus {
   QUEUED = "QUEUED",
@@ -15,15 +16,12 @@ export enum BatchExportStatus {
 export enum BatchExportFileFormat {
   JSON = "JSON",
   CSV = "CSV",
+  JSONL = "JSONL",
 }
 
-export enum BatchExportTableName {
-  Scores = "scores",
-  Sessions = "sessions",
-  Traces = "traces",
-  Observations = "observations",
-  DatasetRunItems = "dataset_run_items",
-}
+// Use shared BatchTableNames enum for consistency across batch operations
+// Keep BatchExportTableName as alias for backward compatibility
+export { BatchTableNames as BatchExportTableName };
 
 export const exportOptions: Record<
   BatchExportFileFormat,
@@ -35,10 +33,15 @@ export const exportOptions: Record<
 > = {
   CSV: { label: "CSV", extension: "csv", fileType: "text/csv" },
   JSON: { label: "JSON", extension: "json", fileType: "application/json" },
+  JSONL: {
+    label: "JSONL",
+    extension: "jsonl",
+    fileType: "application/x-ndjson",
+  },
 } as const;
 
 export const BatchExportQuerySchema = z.object({
-  tableName: z.nativeEnum(BatchExportTableName),
+  tableName: z.nativeEnum(BatchTableNames),
   filter: z.array(singleFilter).nullable(),
   orderBy,
   limit: z.number().optional(),

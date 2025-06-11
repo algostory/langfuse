@@ -16,10 +16,13 @@ import {
 } from "@langfuse/shared";
 import { encrypt } from "@langfuse/shared/encryption";
 import {
+  ChatMessageType,
   fetchLLMCompletion,
   LLMAdapter,
   logger,
 } from "@langfuse/shared/src/server";
+import { env } from "@/src/env.mjs";
+import { TRPCError } from "@trpc/server";
 
 export function getDisplaySecretKey(secretKey: string) {
   return secretKey.endsWith('"}')
@@ -37,6 +40,21 @@ export const llmApiKeyRouter = createTRPCRouter({
           projectId: input.projectId,
           scope: "llmApiKeys:create",
         });
+
+        if (!env.ENCRYPTION_KEY) {
+          if (env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Internal server error",
+            });
+          } else {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "Missing environment variable: `ENCRYPTION_KEY`. Please consult our docs: https://langfuse.com/self-hosting",
+            });
+          }
+        }
 
         const key = await ctx.prisma.llmApiKeys.create({
           data: {
@@ -83,18 +101,59 @@ export const llmApiKeyRouter = createTRPCRouter({
         scope: "llmApiKeys:delete",
       });
 
-      await ctx.prisma.llmApiKeys.delete({
+      const llmApiKey = await ctx.prisma.llmApiKeys.findUnique({
         where: {
           id: input.id,
           projectId: input.projectId,
         },
       });
 
-      await auditLog({
-        session: ctx.session,
-        resourceType: "llmApiKey",
-        resourceId: input.id,
-        action: "delete",
+      return ctx.prisma.$transaction(async (tx) => {
+        // Check if the llm api key is used for the default evaluation model
+        // If so, it will be deleted and we must invalidate all eval jobs that rely on it
+        const defaultModel = await tx.defaultLlmModel.findFirst({
+          where: {
+            projectId: input.projectId,
+          },
+        });
+
+        if (!!defaultModel && defaultModel.llmApiKeyId === llmApiKey?.id) {
+          // Invalidate all eval jobs that rely on the default model
+          const evalTemplates = await tx.evalTemplate.findMany({
+            where: {
+              OR: [{ projectId: input.projectId }, { projectId: null }],
+              provider: null,
+              model: null,
+            },
+          });
+
+          await tx.jobConfiguration.updateMany({
+            where: {
+              evalTemplateId: { in: evalTemplates.map((et) => et.id) },
+              projectId: input.projectId,
+            },
+            data: {
+              status: "INACTIVE",
+            },
+          });
+        }
+
+        await tx.llmApiKeys.delete({
+          where: {
+            id: input.id,
+            projectId: input.projectId,
+          },
+        });
+
+        await auditLog({
+          session: ctx.session,
+          resourceType: "llmApiKey",
+          resourceId: input.id,
+          before: llmApiKey,
+          action: "delete",
+        });
+
+        return { success: true };
       });
     }),
   all: protectedProjectProcedure
@@ -170,8 +229,16 @@ export const llmApiKeyRouter = createTRPCRouter({
         }
 
         const testMessages: ChatMessage[] = [
-          { role: ChatMessageRole.System, content: "You are a bot" },
-          { role: ChatMessageRole.User, content: "How are you?" },
+          {
+            role: ChatMessageRole.System,
+            content: "You are a bot",
+            type: ChatMessageType.System,
+          },
+          {
+            role: ChatMessageRole.User,
+            content: "How are you?",
+            type: ChatMessageType.User,
+          },
         ];
 
         await fetchLLMCompletion({
@@ -179,7 +246,6 @@ export const llmApiKeyRouter = createTRPCRouter({
             adapter: input.adapter,
             provider: input.provider,
             model,
-            top_p: 0.9, // Langchain sets 1 as default that is not supported HuggingFace
           },
           baseURL: input.baseURL,
           apiKey: input.secretKey,

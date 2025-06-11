@@ -15,9 +15,10 @@ import {
   traceRecordReadSchema,
   TraceRecordReadType,
   ingestionEvent,
+  logger,
 } from "@langfuse/shared/src/server";
 import { pruneDatabase } from "../../../__tests__/utils";
-
+import waitForExpect from "wait-for-expect";
 import { ClickhouseWriter, TableName } from "../../ClickhouseWriter";
 import { IngestionService } from "../../IngestionService";
 import { ModelUsageUnit, ScoreSource } from "@langfuse/shared";
@@ -33,6 +34,7 @@ describe("Ingestion end-to-end tests", () => {
   beforeEach(async () => {
     if (!redis) throw new Error("Redis not initialized");
     await pruneDatabase();
+    await redis.flushall();
 
     clickhouseWriter = ClickhouseWriter.getInstance();
 
@@ -345,6 +347,33 @@ describe("Ingestion end-to-end tests", () => {
         output_reasoning_tokens: 4,
       },
     },
+    {
+      usage: null,
+      usageDetails: {
+        prompt_tokens: 5,
+        completion_tokens: 11,
+        total_tokens: 16,
+        prompt_tokens_details: {
+          cached_tokens: 2,
+          audio_tokens: null,
+          image_tokens: undefined,
+        },
+        completion_tokens_details: {
+          text_tokens: 3,
+          audio_tokens: undefined,
+          reasoning_tokens: 4,
+          image_tokens: null,
+        },
+      },
+      expectedUsageDetails: {
+        input: 3,
+        output: 4,
+        total: 16,
+        input_cached_tokens: 2,
+        output_text_tokens: 3,
+        output_reasoning_tokens: 4,
+      },
+    },
     // OpenAI Response API format
     {
       usage: null,
@@ -370,6 +399,33 @@ describe("Ingestion end-to-end tests", () => {
         input_audio_tokens: 3,
         output_text_tokens: 3,
         output_audio_tokens: 4,
+        output_reasoning_tokens: 4,
+      },
+    },
+    {
+      usage: null,
+      usageDetails: {
+        input_tokens: 5,
+        output_tokens: 11,
+        total_tokens: 16,
+        input_tokens_details: {
+          cached_tokens: 2,
+          audio_tokens: null,
+          image_tokens: undefined,
+        },
+        output_tokens_details: {
+          text_tokens: 3,
+          audio_tokens: null,
+          reasoning_tokens: 4,
+          image_tokens: undefined,
+        },
+      },
+      expectedUsageDetails: {
+        input: 3,
+        output: 4,
+        total: 16,
+        input_cached_tokens: 2,
+        output_text_tokens: 3,
         output_reasoning_tokens: 4,
       },
     },
@@ -1097,19 +1153,17 @@ describe("Ingestion end-to-end tests", () => {
 
     await clickhouseWriter.flushAll(true);
 
-    vi.useRealTimers();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    vi.useFakeTimers();
+    await waitForExpect(async () => {
+      const trace = await getClickhouseRecord(TableName.Traces, traceId);
 
-    const trace = await getClickhouseRecord(TableName.Traces, traceId);
-
-    expect(trace.name).toBe("trace-name");
-    expect(trace.user_id).toBe("user-2");
-    expect(trace.release).toBe("1.0.0");
-    expect(trace.version).toBe("2.0.0");
-    expect(trace.project_id).toBe("7a88fb47-b4e2-43b8-a06c-a5ce950dc53a");
-    expect(trace.tags).toEqual(["tag-1", "tag-2", "tag-3", "tag-4"]);
-    expect(trace.tags.length).toBe(4);
+      expect(trace.name).toBe("trace-name");
+      expect(trace.user_id).toBe("user-2");
+      expect(trace.release).toBe("1.0.0");
+      expect(trace.version).toBe("2.0.0");
+      expect(trace.project_id).toBe("7a88fb47-b4e2-43b8-a06c-a5ce950dc53a");
+      expect(trace.tags).toEqual(["tag-1", "tag-2", "tag-3", "tag-4"]);
+      expect(trace.tags.length).toBe(4);
+    });
   });
 
   it("should upsert traces in the right order", async () => {

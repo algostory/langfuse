@@ -15,10 +15,7 @@ import { PostHogLogo } from "@/src/components/PosthogLogo";
 import { Card } from "@/src/components/ui/card";
 import { ScoreConfigSettings } from "@/src/features/scores/components/ScoreConfigSettings";
 import { TransferProjectButton } from "@/src/features/projects/components/TransferProjectButton";
-import {
-  useEntitlements,
-  useHasEntitlement,
-} from "@/src/features/entitlements/hooks";
+import { useHasEntitlement } from "@/src/features/entitlements/hooks";
 import { useHasProjectAccess } from "@/src/features/rbac/utils/checkProjectAccess";
 import { useRouter } from "next/router";
 import { SettingsDangerZone } from "@/src/components/SettingsDangerZone";
@@ -28,6 +25,7 @@ import { AuditLogsSettingsPage } from "@/src/ee/features/audit-log-viewer/AuditL
 import { ModelsSettings } from "@/src/features/models/components/ModelSettings";
 import ConfigureRetention from "@/src/features/projects/components/ConfigureRetention";
 import ContainerPage from "@/src/components/layouts/container-page";
+import ProtectedLabelsSettings from "@/src/features/prompts/components/ProtectedLabelsSettings";
 
 type ProjectSettingsPage = {
   title: string;
@@ -41,11 +39,9 @@ export function useProjectSettingsPages(): ProjectSettingsPage[] {
   const { project, organization } = useQueryProject();
   const showBillingSettings = useHasEntitlement("cloud-billing");
   const showRetentionSettings = useHasEntitlement("data-retention");
-
-  const entitlements = useEntitlements();
-  const showLLMConnectionsSettings =
-    entitlements.includes("playground") ||
-    entitlements.includes("model-based-evaluations");
+  const showProtectedLabelsSettings = useHasEntitlement(
+    "prompt-protected-labels",
+  );
 
   if (!project || !organization || !router.query.projectId) {
     return [];
@@ -56,7 +52,8 @@ export function useProjectSettingsPages(): ProjectSettingsPage[] {
     organization,
     showBillingSettings,
     showRetentionSettings,
-    showLLMConnectionsSettings,
+    showLLMConnectionsSettings: true,
+    showProtectedLabelsSettings,
   });
 }
 
@@ -66,12 +63,14 @@ export const getProjectSettingsPages = ({
   showBillingSettings,
   showRetentionSettings,
   showLLMConnectionsSettings,
+  showProtectedLabelsSettings,
 }: {
-  project: { id: string; name: string };
-  organization: { id: string; name: string };
+  project: { id: string; name: string; metadata: Record<string, unknown> };
+  organization: { id: string; name: string; metadata: Record<string, unknown> };
   showBillingSettings: boolean;
   showRetentionSettings: boolean;
   showLLMConnectionsSettings: boolean;
+  showProtectedLabelsSettings: boolean;
 }): ProjectSettingsPage[] => [
   {
     title: "General",
@@ -87,8 +86,16 @@ export const getProjectSettingsPages = ({
           <JSONView
             title="Metadata"
             json={{
-              project: { name: project.name, id: project.id },
-              org: { name: organization.name, id: organization.id },
+              project: {
+                name: project.name,
+                id: project.id,
+                ...project.metadata,
+              },
+              org: {
+                name: organization.name,
+                id: organization.id,
+                ...organization.metadata,
+              },
             }}
           />
         </div>
@@ -117,7 +124,7 @@ export const getProjectSettingsPages = ({
     cmdKKeywords: ["auth", "public key", "secret key"],
     content: (
       <div className="flex flex-col gap-6">
-        <ApiKeyList projectId={project.id} />
+        <ApiKeyList entityId={project.id} scope="project" />
       </div>
     ),
   },
@@ -147,6 +154,13 @@ export const getProjectSettingsPages = ({
     slug: "models",
     cmdKKeywords: ["cost", "token"],
     content: <ModelsSettings projectId={project.id} />,
+  },
+  {
+    title: "Protected Prompt Labels",
+    slug: "protected-prompt-labels",
+    cmdKKeywords: ["prompt", "label", "protect", "lock"],
+    content: <ProtectedLabelsSettings projectId={project.id} />,
+    show: showProtectedLabelsSettings,
   },
   {
     title: "Scores / Evaluation",
@@ -228,7 +242,6 @@ export default function SettingsPage() {
 }
 
 const Integrations = (props: { projectId: string }) => {
-  const hasEntitlement = useHasEntitlement("integration-posthog");
   const hasAccess = useHasProjectAccess({
     projectId: props.projectId,
     scope: "integrations:CRUD",
@@ -237,29 +250,59 @@ const Integrations = (props: { projectId: string }) => {
   return (
     <div>
       <Header title="Integrations" />
-      <Card className="p-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <PostHogLogo className="mb-4 w-40 text-foreground" />
-        <p className="mb-4 text-sm text-primary">
-          We have teamed up with PostHog (OSS product analytics) to make
-          Langfuse Events/Metrics available in your Posthog Dashboards.
-        </p>
-        <div className="flex items-center gap-2">
-          <ActionButton
-            variant="secondary"
-            hasAccess={hasAccess}
-            hasEntitlement={hasEntitlement}
-            href={`/project/${props.projectId}/settings/integrations/posthog`}
-          >
-            Configure
-          </ActionButton>
-          <Button asChild variant="ghost">
-            <Link href="https://langfuse.com/docs/analytics/posthog">
-              Integration Docs ↗
-            </Link>
-          </Button>
-        </div>
-      </Card>
+      <div className="space-y-6">
+        <Card className="p-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <PostHogLogo className="mb-4 w-40 text-foreground" />
+          <p className="mb-4 text-sm text-primary">
+            We have teamed up with PostHog (OSS product analytics) to make
+            Langfuse Events/Metrics available in your Posthog Dashboards.
+          </p>
+          <div className="flex items-center gap-2">
+            <ActionButton
+              variant="secondary"
+              hasAccess={hasAccess}
+              href={`/project/${props.projectId}/settings/integrations/posthog`}
+            >
+              Configure
+            </ActionButton>
+            <Button asChild variant="ghost">
+              <Link
+                href="https://langfuse.com/docs/analytics/posthog"
+                target="_blank"
+              >
+                Integration Docs ↗
+              </Link>
+            </Button>
+          </div>
+        </Card>
+
+        <Card className="p-3">
+          <span className="font-semibold">Blob Storage</span>
+          <p className="mb-4 text-sm text-primary">
+            Configure scheduled exports of your trace data to S3 compatible
+            storages or Azure Blob Storage. Set up a scheduled export to your
+            own storage for data analysis or backup purposes.
+          </p>
+          <div className="flex items-center gap-2">
+            <ActionButton
+              variant="secondary"
+              hasAccess={hasAccess}
+              href={`/project/${props.projectId}/settings/integrations/blobstorage`}
+            >
+              Configure
+            </ActionButton>
+            <Button asChild variant="ghost">
+              <Link
+                href="https://langfuse.com/docs/query-traces#blob-storage"
+                target="_blank"
+              >
+                Integration Docs ↗
+              </Link>
+            </Button>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 };

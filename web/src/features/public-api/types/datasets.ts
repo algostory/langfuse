@@ -141,9 +141,9 @@ export const GetDatasetRunV1Response = APIDatasetRun.extend({
 // POST /dataset-items
 export const PostDatasetItemsV1Body = z.object({
   datasetName: z.string(),
-  input: jsonSchema.nullish(),
-  expectedOutput: jsonSchema.nullish(),
-  metadata: jsonSchema.nullish(),
+  input: z.any().nullish(),
+  expectedOutput: z.any().nullish(),
+  metadata: z.any().nullish(),
   id: z.string().nullish(),
   sourceTraceId: z.string().nullish(),
   sourceObservationId: z.string().nullish(),
@@ -197,6 +197,19 @@ export const PostDatasetRunItemsV1Body = z
     path: ["observationId", "traceId"], // Specify the path of the error
   });
 export const PostDatasetRunItemsV1Response = APIDatasetRunItem.strict();
+
+// GET /dataset-run-items
+export const GetDatasetRunItemsV1Query = z.object({
+  datasetId: z.string(),
+  runName: z.string(),
+  ...publicApiPaginationZod,
+});
+export const GetDatasetRunItemsV1Response = z
+  .object({
+    data: z.array(APIDatasetRunItem),
+    meta: paginationMetaResponseZod,
+  })
+  .strict();
 
 /**
  * Deprecated endpoints replaced with v2, available for backward compatibility

@@ -83,6 +83,12 @@ model User {
   featureFlags            String[]                 @default([]) @map("feature_flags")
   annotatedLockedItem     AnnotationQueueItem[]    @relation("LockedByUser")
   annotatedCompletedItem  AnnotationQueueItem[]    @relation("AnnotatorUser")
+  dashboardWidgetsCreated DashboardWidget[]        @relation("CreatedByUser")
+  dashboardWidgetsUpdated DashboardWidget[]        @relation("UpdatedByUser")
+  dashboardCreated        Dashboard[]              @relation("CreatedByUser")
+  dashboardUpdated        Dashboard[]              @relation("UpdatedByUser")
+  tableViewPresetCreated  TableViewPreset[]        @relation("CreatedByUser")
+  tableViewPresetUpdated  TableViewPreset[]        @relation("UpdatedByUser")
 
   @@map("users")
 }
@@ -102,64 +108,84 @@ model Organization {
   createdAt               DateTime                 @default(now()) @map("created_at")
   updatedAt               DateTime                 @default(now()) @updatedAt @map("updated_at")
   cloudConfig             Json?                    @map("cloud_config") // Langfuse Cloud, for zod schema see @/src/features/organizations/utils/cloudConfigSchema
+  metadata                Json?
   organizationMemberships OrganizationMembership[]
   projects                Project[]
   MembershipInvitation    MembershipInvitation[]
+  ApiKey                  ApiKey[]
 
   @@map("organizations")
 }
 
 model Project {
-  id                  String                    @id @default(cuid())
-  orgId               String                    @map("org_id")
-  createdAt           DateTime                  @default(now()) @map("created_at")
-  updatedAt           DateTime                  @default(now()) @updatedAt @map("updated_at")
-  deletedAt           DateTime?                 @map("deleted_at")
-  name                String
-  retentionDays       Int?                      @map("retention_days")
-  projectMembers      ProjectMembership[]
-  organization        Organization              @relation(fields: [orgId], references: [id], onUpdate: Cascade, onDelete: Cascade)
-  apiKeys             ApiKey[]
-  dataset             Dataset[]
-  invitations         MembershipInvitation[]
-  sessions            TraceSession[]
-  Prompt              Prompt[]
-  Model               Model[]
-  EvalTemplate        EvalTemplate[]
-  JobConfiguration    JobConfiguration[]
-  JobExecution        JobExecution[]
-  LlmApiKeys          LlmApiKeys[]
-  PosthogIntegration  PosthogIntegration[]
-  scoreConfig         ScoreConfig[]
-  BatchExport         BatchExport[]
-  comment             Comment[]
-  annotationQueue     AnnotationQueue[]
-  annotationQueueItem AnnotationQueueItem[]
-  TraceMedia          TraceMedia[]
-  Media               Media[]
-  ObservationMedia    ObservationMedia[]
-  LegacyTrace         LegacyPrismaTrace[]
-  LegacyObservation   LegacyPrismaObservation[]
-  LegacyScore         LegacyPrismaScore[]
-  PromptDependency    PromptDependency[]
+  id                     String                    @id @default(cuid())
+  orgId                  String                    @map("org_id")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @default(now()) @updatedAt @map("updated_at")
+  deletedAt              DateTime?                 @map("deleted_at")
+  name                   String
+  retentionDays          Int?                      @map("retention_days")
+  metadata               Json?
+  projectMembers         ProjectMembership[]
+  organization           Organization              @relation(fields: [orgId], references: [id], onUpdate: Cascade, onDelete: Cascade)
+  apiKeys                ApiKey[]
+  dataset                Dataset[]
+  invitations            MembershipInvitation[]
+  sessions               TraceSession[]
+  Prompt                 Prompt[]
+  Model                  Model[]
+  EvalTemplate           EvalTemplate[]
+  JobConfiguration       JobConfiguration[]
+  JobExecution           JobExecution[]
+  LlmApiKeys             LlmApiKeys[]
+  PosthogIntegration     PosthogIntegration[]
+  BlobStorageIntegration BlobStorageIntegration[]
+  scoreConfig            ScoreConfig[]
+  BatchExport            BatchExport[]
+  comment                Comment[]
+  annotationQueue        AnnotationQueue[]
+  annotationQueueItem    AnnotationQueueItem[]
+  TraceMedia             TraceMedia[]
+  Media                  Media[]
+  ObservationMedia       ObservationMedia[]
+  LegacyTrace            LegacyPrismaTrace[]
+  LegacyObservation      LegacyPrismaObservation[]
+  LegacyScore            LegacyPrismaScore[]
+  PromptDependency       PromptDependency[]
+  LlmSchema              LlmSchema[]
+  LlmTool                LlmTool[]
+  PromptProtectedLabels  PromptProtectedLabels[]
+  Dashboard              Dashboard[]
+  DashboardWidget        DashboardWidget[]
+  TableViewPreset        TableViewPreset[]
+  DefaultLlmModel        DefaultLlmModel[]
 
   @@index([orgId])
   @@map("projects")
 }
 
-model ApiKey {
-  id                  String    @id @unique @default(cuid())
-  createdAt           DateTime  @default(now()) @map("created_at")
-  note                String?
-  publicKey           String    @unique @map("public_key")
-  hashedSecretKey     String    @unique @map("hashed_secret_key")
-  fastHashedSecretKey String?   @unique @map("fast_hashed_secret_key")
-  displaySecretKey    String    @map("display_secret_key")
-  lastUsedAt          DateTime? @map("last_used_at")
-  expiresAt           DateTime? @map("expires_at")
-  projectId           String    @map("project_id")
-  project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+enum ApiKeyScope {
+  ORGANIZATION
+  PROJECT
+}
 
+model ApiKey {
+  id                  String        @id @unique @default(cuid())
+  createdAt           DateTime      @default(now()) @map("created_at")
+  note                String?
+  publicKey           String        @unique @map("public_key")
+  hashedSecretKey     String        @unique @map("hashed_secret_key")
+  fastHashedSecretKey String?       @unique @map("fast_hashed_secret_key")
+  displaySecretKey    String        @map("display_secret_key")
+  lastUsedAt          DateTime?     @map("last_used_at")
+  expiresAt           DateTime?     @map("expires_at")
+  projectId           String?       @map("project_id")
+  project             Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  orgId               String?       @map("organization_id")
+  organization        Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  scope               ApiKeyScope   @default(PROJECT) @map("scope")
+
+  @@index(orgId)
   @@index(projectId)
   @@index(publicKey)
   @@index(hashedSecretKey)
@@ -198,8 +224,9 @@ model LlmApiKeys {
   extraHeaderKeys   String[] @default([]) @map("extra_header_keys")
   config            Json?
 
-  projectId String  @map("project_id")
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId       String            @map("project_id")
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  DefaultLlmModel DefaultLlmModel[] @relation("LlmApiKeyId")
 
   @@unique([projectId, provider])
   @@map("llm_api_keys")
@@ -254,6 +281,7 @@ model MembershipInvitation {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @default(now()) @updatedAt @map("updated_at")
 
+  @@unique([email, orgId]) // do not include projectId as this leads to issues when processing the invites, needs new logic
   @@index([projectId])
   @@index([orgId])
   @@index([email])
@@ -676,9 +704,21 @@ model PromptDependency {
   childLabel   String? @map("child_label")
   childVersion Int?    @map("child_version")
 
-  @@index([projectId, parentId])
-  @@index([projectId, childName])
+  @@index([projectId, parentId], map: "prompt_dependencies_project_id_parent_id")
+  @@index([projectId, childName], map: "prompt_dependencies_project_id_child_name")
   @@map("prompt_dependencies")
+}
+
+model PromptProtectedLabels {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  projectId String   @map("project_id")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label     String
+
+  @@unique([projectId, label])
+  @@map("prompt_protected_labels")
 }
 
 // Update ObservationView below when making changes to this model!
@@ -756,18 +796,22 @@ model EvalTemplate {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  projectId String  @map("project_id")
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String?  @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  name             String
-  version          Int
-  prompt           String
-  model            String
-  provider         String
-  modelParams      Json               @map("model_params")
+  name    String
+  version Int
+  prompt  String
+
+  partner String? // e.g. "ragas", describes the partner that created the template
+
+  model            String?
+  provider         String?
+  modelParams      Json?              @map("model_params")
   vars             String[]           @default([])
   outputSchema     Json               @map("output_schema")
   JobConfiguration JobConfiguration[]
+  JobExecution     JobExecution[]
 
   @@unique([projectId, name, version])
   @@index([projectId, id])
@@ -827,6 +871,9 @@ model JobExecution {
   jobConfigurationId String           @map("job_configuration_id")
   jobConfiguration   JobConfiguration @relation(fields: [jobConfigurationId], references: [id], onDelete: Cascade)
 
+  jobTemplateId String?       @map("job_template_id")
+  jobTemplate   EvalTemplate? @relation(fields: [jobTemplateId], references: [id], onDelete: SetNull)
+
   status    JobExecutionStatus
   startTime DateTime?          @map("start_time")
   endTime   DateTime?          @map("end_time")
@@ -850,6 +897,26 @@ model JobExecution {
   @@map("job_executions")
 }
 
+model DefaultLlmModel {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  projectId String  @map("project_id")
+  Project   Project @relation(fields: [projectId], references: [id])
+
+  llmApiKeyId String     @map("llm_api_key_id")
+  LlmApiKey   LlmApiKeys @relation("LlmApiKeyId", fields: [llmApiKeyId], references: [id], onDelete: Cascade)
+
+  provider    String
+  adapter     String // This controls the interface that is used to connect with the LLM, e.g. 'openai' or 'anthropic'
+  model       String
+  modelParams Json?  @map("model_params")
+
+  @@unique([projectId])
+  @@map("default_llm_models")
+}
+
 // Single Sign-On configuration for a domain
 // This feature is part of the Enterprise Edition
 model SsoConfig {
@@ -859,9 +926,9 @@ model SsoConfig {
   authProvider String   @map("auth_provider") // e.g. "okta", ee/sso/types.ts
 
   authConfig Json? @map("auth_config")
+
   // e.g. { "clientId": "1234", "clientSecret": "5678" }, null if credentials from env should be used
   // secrets like clientSecret are encrypted on the application level
-
   @@map("sso_configs")
 }
 
@@ -875,6 +942,49 @@ model PosthogIntegration {
   createdAt              DateTime  @default(now()) @map("created_at")
 
   @@map("posthog_integrations")
+}
+
+model BlobStorageIntegration {
+  projectId String  @id @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Blob Storage Config
+  type            BlobStorageIntegrationType @map("type")
+  bucketName      String                     @map("bucket_name")
+  prefix          String                     @map("prefix")
+  accessKeyId     String?                    @map("access_key_id")
+  secretAccessKey String?                    @map("secret_access_key")
+  region          String                     @map("region")
+  endpoint        String?                    @map("endpoint")
+  forcePathStyle  Boolean                    @map("force_path_style")
+
+  // Integration Config
+  nextSyncAt      DateTime?                      @map("next_sync_at")
+  lastSyncAt      DateTime?                      @map("last_sync_at")
+  enabled         Boolean
+  exportFrequency String                         @map("export_frequency")
+  fileType        BlobStorageIntegrationFileType @default(CSV) @map("file_type")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("blob_storage_integrations")
+}
+
+enum BlobStorageIntegrationFileType {
+  JSON
+  CSV
+  JSONL
+
+  @@map("BlobStorageIntegrationFileType")
+}
+
+enum BlobStorageIntegrationType {
+  S3
+  S3_COMPATIBLE
+  AZURE_BLOB_STORAGE
+
+  @@map("BlobStorageIntegrationType")
 }
 
 model BatchExport {
@@ -902,7 +1012,7 @@ model BatchExport {
 }
 
 model Media {
-  id               String             @id @default(cuid())
+  id               String
   sha256Hash       String             @map("sha_256_hash") @db.Char(44)
   projectId        String             @map("project_id")
   project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -918,6 +1028,7 @@ model Media {
   TraceMedia       TraceMedia[]
   ObservationMedia ObservationMedia[]
 
+  @@unique([projectId, id])
   @@unique([projectId, sha256Hash])
   @@map("media")
 }
@@ -929,11 +1040,12 @@ model TraceMedia {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   mediaId   String   @map("media_id")
-  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  media     Media    @relation(fields: [mediaId, projectId], references: [id, projectId], onDelete: Cascade)
   traceId   String   @map("trace_id")
   field     String   @map("field")
 
   @@unique([projectId, traceId, mediaId, field])
+  @@index([projectId, mediaId])
   @@map("trace_media")
 }
 
@@ -944,25 +1056,14 @@ model ObservationMedia {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
   mediaId       String   @map("media_id")
-  media         Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  media         Media    @relation(fields: [mediaId, projectId], references: [id, projectId], onDelete: Cascade)
   traceId       String   @map("trace_id")
   observationId String   @map("observation_id")
   field         String   @map("field")
 
   @@unique([projectId, traceId, observationId, mediaId, field])
-  @@index([projectId, observationId])
+  @@index([projectId, mediaId])
   @@map("observation_media")
-}
-
-model QueueBackUp {
-  id        String  @id @default(cuid())
-  projectId String? @map("project_id")
-  queueName String  @map("queue_name")
-  content   Json
-
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("queue_backups")
 }
 
 model BillingMeterBackup {
@@ -986,4 +1087,130 @@ model BillingMeterBackup {
   @@unique([stripeCustomerId, meterId, startTime, endTime])
   @@index([stripeCustomerId, meterId, startTime, endTime])
   @@map("billing_meter_backups")
+}
+
+model LlmSchema {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String @map("name")
+  description String @map("description")
+  schema      Json   @map("schema") @db.Json
+
+  @@unique([projectId, name])
+  @@map("llm_schemas")
+}
+
+model LlmTool {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String @map("name")
+  description String @map("description")
+  parameters  Json   @map("parameters") @db.Json
+
+  @@unique([projectId, name])
+  @@map("llm_tools")
+}
+
+model Dashboard {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  createdBy     String? @map("created_by")
+  createdByUser User?   @relation("CreatedByUser", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy     String? @map("updated_by")
+  updatedByUser User?   @relation("UpdatedByUser", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  // Optional to account for Langfuse-managed dashboards
+  projectId String?  @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String @map("name")
+  description String @map("description")
+
+  definition Json @map("definition")
+
+  @@map("dashboards")
+}
+
+enum DashboardWidgetViews {
+  TRACES
+  OBSERVATIONS
+  SCORES_NUMERIC
+  SCORES_CATEGORICAL
+}
+
+enum DashboardWidgetChartType {
+  LINE_TIME_SERIES
+  BAR_TIME_SERIES
+  HORIZONTAL_BAR
+  VERTICAL_BAR
+  PIE
+  NUMBER
+  HISTOGRAM
+}
+
+model DashboardWidget {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  createdBy     String? @map("created_by")
+  createdByUser User?   @relation("CreatedByUser", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy     String? @map("updated_by")
+  updatedByUser User?   @relation("UpdatedByUser", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  // Optional to account for Langfuse-managed dashboards
+  projectId String?  @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name        String @map("name")
+  description String @map("description")
+
+  view       DashboardWidgetViews @map("view")
+  dimensions Json                 @map("dimensions")
+  metrics    Json                 @map("metrics")
+  filters    Json                 @map("filters")
+
+  chartType   DashboardWidgetChartType @map("chart_type")
+  chartConfig Json                     @map("chart_config")
+
+  @@map("dashboard_widgets")
+}
+
+model TableViewPreset {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name      String @map("name")
+  tableName String @map("table_name")
+
+  createdBy     String? @map("created_by")
+  createdByUser User?   @relation("CreatedByUser", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedBy     String? @map("updated_by")
+  updatedByUser User?   @relation("UpdatedByUser", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  // view configuration
+  filters          Json    @map("filters")
+  columnOrder      Json    @map("column_order")
+  columnVisibility Json    @map("column_visibility")
+  searchQuery      String? @map("search_query")
+  orderBy          Json?   @map("order_by")
+
+  @@unique([projectId, tableName, name])
+  @@map("table_view_presets")
 }

@@ -3,29 +3,21 @@ import { type Plan } from "@langfuse/shared";
 // Entitlements: Binary feature access
 const entitlements = [
   // features
-  "playground",
-  "model-based-evaluations",
   "rbac-project-roles",
   "cloud-billing",
   "cloud-multi-tenant-sso",
-  "integration-posthog",
-  "annotation-queues",
   "self-host-ui-customization",
   "self-host-allowed-organization-creators",
-  "prompt-experiments",
   "trace-deletion", // Not in use anymore, but necessary to use the TableAction type.
   "audit-logs",
   "data-retention",
+  "prompt-protected-labels",
+  "admin-api",
 ] as const;
 export type Entitlement = (typeof entitlements)[number];
 
 const cloudAllPlansEntitlements: Entitlement[] = [
-  "playground",
-  "model-based-evaluations",
   "cloud-billing",
-  "integration-posthog",
-  "annotation-queues",
-  "prompt-experiments",
   "trace-deletion",
 ];
 
@@ -91,6 +83,8 @@ export const entitlementAccess: Record<
       "audit-logs",
       "data-retention",
       "cloud-multi-tenant-sso",
+      "prompt-protected-labels",
+      "admin-api",
     ],
     entitlementLimits: {
       "annotation-queue-count": false,
@@ -107,6 +101,8 @@ export const entitlementAccess: Record<
       "audit-logs",
       "data-retention",
       "cloud-multi-tenant-sso",
+      "prompt-protected-labels",
+      "admin-api",
     ],
     entitlementLimits: {
       "annotation-queue-count": false,
@@ -117,9 +113,9 @@ export const entitlementAccess: Record<
     },
   },
   oss: {
-    entitlements: [...selfHostedAllPlansEntitlements],
+    entitlements: selfHostedAllPlansEntitlements,
     entitlementLimits: {
-      "annotation-queue-count": 0,
+      "annotation-queue-count": false,
       "organization-member-count": false,
       "data-access-days": false,
       "model-based-evaluations-count-evaluators": false,
@@ -127,14 +123,7 @@ export const entitlementAccess: Record<
     },
   },
   "self-hosted:pro": {
-    entitlements: [
-      ...selfHostedAllPlansEntitlements,
-      "annotation-queues",
-      "model-based-evaluations",
-      "playground",
-      "prompt-experiments",
-      "integration-posthog",
-    ],
+    entitlements: selfHostedAllPlansEntitlements,
     entitlementLimits: {
       "annotation-queue-count": false,
       "organization-member-count": false,
@@ -146,16 +135,13 @@ export const entitlementAccess: Record<
   "self-hosted:enterprise": {
     entitlements: [
       ...selfHostedAllPlansEntitlements,
-      "annotation-queues",
-      "model-based-evaluations",
-      "playground",
-      "prompt-experiments",
       "rbac-project-roles",
       "self-host-allowed-organization-creators",
       "self-host-ui-customization",
-      "integration-posthog",
       "audit-logs",
       "data-retention",
+      "prompt-protected-labels",
+      "admin-api",
     ],
     entitlementLimits: {
       "annotation-queue-count": false,

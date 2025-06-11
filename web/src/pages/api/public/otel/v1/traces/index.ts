@@ -1,5 +1,5 @@
 import { withMiddlewares } from "@/src/features/public-api/server/withMiddlewares";
-import { createAuthedAPIRoute } from "@/src/features/public-api/server/createAuthedAPIRoute";
+import { createAuthedProjectAPIRoute } from "@/src/features/public-api/server/createAuthedProjectAPIRoute";
 import {
   type IngestionEventType,
   logger,
@@ -17,7 +17,7 @@ export const config = {
 };
 
 export default withMiddlewares({
-  POST: createAuthedAPIRoute({
+  POST: createAuthedProjectAPIRoute({
     name: "OTel Traces",
     querySchema: z.any(),
     responseSchema: z.any(),
@@ -90,10 +90,12 @@ export default withMiddlewares({
       }
 
       const events: IngestionEventType[] = resourceSpans.flatMap(
-        convertOtelSpanToIngestionEvent,
+        (span: unknown) =>
+          convertOtelSpanToIngestionEvent(span, auth.scope.publicKey),
       );
       // We set a delay of 0 for OTel, as we never expect updates.
-      return processEventBatch(events, auth, 0);
+      // We also set the source to "otel" which helps us with metric tracking and skipping list calls for S3.
+      return processEventBatch(events, auth, 0, "otel");
     },
   }),
 });

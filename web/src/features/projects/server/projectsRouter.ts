@@ -106,7 +106,7 @@ export const projectsRouter = createTRPCRouter({
     .input(
       z.object({
         projectId: z.string(),
-        retention: z.number().int().gte(7).nullable(),
+        retention: z.number().int().gte(3).nullable(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -175,6 +175,7 @@ export const projectsRouter = createTRPCRouter({
       await ctx.prisma.apiKey.deleteMany({
         where: {
           projectId: input.projectId,
+          scope: "PROJECT",
         },
       });
 
